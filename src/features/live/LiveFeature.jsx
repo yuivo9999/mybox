@@ -53,7 +53,7 @@ export async function resolveLiveChannelStreams(channel, { sources = [], signal 
 }
 
 // Global Live State Cache across Tab Navigations
-const globalLiveCache = {
+export const globalLiveCache = {
   tv1Channels: [],
   selectedChannelId: '',
   selectedCategory: '全部',
@@ -92,6 +92,13 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   useEffect(() => { globalLiveCache.resolvedStreams = resolvedStreams; }, [resolvedStreams]);
   useEffect(() => { globalLiveCache.decoderEngine = decoderEngine; }, [decoderEngine]);
   useEffect(() => { globalLiveCache.isImmersive = isImmersive; }, [isImmersive]);
+
+  useEffect(() => {
+    if (page?.live?.channelId && page.live.channelId !== selectedChannelId) {
+      setSelectedChannelId(page.live.channelId);
+      if (page.live.category) setSelectedCategory(page.live.category);
+    }
+  }, [page?.live?.channelId, page?.live?.category, selectedChannelId]);
 
   useEffect(() => {
     let active = true;
@@ -399,11 +406,11 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       await loadChannelStreams(channelToPlay);
     }
     selectChannel(channelToPlay);
-    if (onPlay) {
-      onPlay(channelToPlay, streamId);
-    } else {
-      setIsImmersive(true);
+    if (streamId && Array.isArray(channelToPlay.streams)) {
+      const idx = channelToPlay.streams.findIndex(s => s.streamId === streamId);
+      if (idx >= 0) handleSwitchStream(idx);
     }
+    setIsImmersive(true);
   };
 
   return (
