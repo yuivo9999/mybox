@@ -2491,3 +2491,71 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
 }
 .theme-dark .live-channel-card .card-play-btn svg { stroke: #f8fafc !important; }
 
+/* Theme Adaptive Source Card Backgrounds */
+.theme-sangtian .source-card {
+  background: #fcf9f2 !important;
+  border-color: #dbcbb1 !important;
+  color: #261f18 !important;
+}
+.theme-sangtian .source-card .source-card-info b {
+  color: #1e1711 !important;
+}
+.theme-sangtian .source-card .source-card-icon {
+  background: rgba(83, 61, 38, 0.08) !important;
+  color: #7b6a57 !important;
+}
+.theme-sangtian .source-card .secondary {
+  background: #fbf6ec !important;
+  border-color: #d8caa9 !important;
+  color: #554535 !important;
+}
+
+.theme-light .source-card {
+  background: #ffffff !important;
+  border-color: #d9dee7 !important;
+  color: #151820 !important;
+}
+.theme-light .source-card .source-card-info b {
+  color: #151820 !important;
+}
+.theme-light .source-card .source-card-icon {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #566070 !important;
+}
+.theme-light .source-card .secondary {
+  background: #ffffff !important;
+  border-color: #cbd2dd !important;
+  color: #151820 !important;
+}
+
+/* Modal Local File Upload Button Adaptive Colors */
+.modal-upload-btn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #303744);
+  background: var(--card-bg, #171b23);
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 0.15s;
+}
+
+.theme-sangtian .modal-upload-btn {
+  background: #fbf6ec !important;
+  border-color: #d8caa9 !important;
+  color: #261f18 !important;
+}
+
+.theme-light .modal-upload-btn {
+  background: #ffffff !important;
+  border-color: #cbd2dd !important;
+  color: #151820 !important;
+}
+
+.theme-dark .modal-upload-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+

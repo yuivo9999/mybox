@@ -62,7 +62,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             enableWorker: true,
             lowLatencyMode: false,
             backBufferLength: 60,
-            maxBufferLength: isLiveStream ? 20 : 60,
+            maxBufferLength: 60,
             maxMaxBufferLength: 120,
             maxBufferSize: 80 * 1000 * 1000,
             maxBufferHole: 0.8,

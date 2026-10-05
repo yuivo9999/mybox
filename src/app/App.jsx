@@ -9,7 +9,7 @@ import { useSessionState } from '../state/useSessionState.js';
 import { sessionStateStore } from '../state/sessionStateStore.js';
 import { pageStateStore } from '../state/pageStateStore.js';
 import { MovieFeature } from '../features/movie/MovieFeature.jsx';
-import { LiveFeature, globalLiveCache } from '../features/live/LiveFeature.jsx';
+import { LiveFeature, LiveChannelPanel, resolveLiveChannelStreams, globalLiveCache } from '../features/live/LiveFeature.jsx';
 import { ErrorBoundary } from '../components/ErrorBoundary.jsx';
 import { webViewRuntime } from '../runtime/webViewRuntime.js';
 import { MainPage } from '../pages/MainPage.jsx';
@@ -220,23 +220,51 @@ export function App(){
    if (targetTab) nav(targetTab);
  };
  const openSearchHistory=(keyword)=>{pageStateStore.patch('search',{query:keyword});sessionStateStore.patch({tab:'movies',route:'search',selected:null});};
- const playLive=(channel,streamId=null)=>{
+ const openLiveChannel=(channel)=>{
+   if(!channel)return;
+   persistent.touchFavorite?.('channel', channel.channelId);
+   sessionStateStore.patch({selected:channel,route:'live-channel',tab:'live'});
+ };
+ const handleLiveBack = () => {
+   const returnRoute = selected?.metadata?.returnRoute;
+   if (returnRoute === 'live-channel') {
+     const channelObj = selected?.metadata?.channel || contentState.channels.find(c => c.channelId === selected?.channelId) || null;
+     if (channelObj) {
+       sessionStateStore.patch({ route: 'live-channel', selected: channelObj });
+       return;
+     }
+   }
+   sessionStateStore.patch({ route: null, selected: null, tab: 'live' });
+ };
+ const playLive=async(channel,streamId=null,returnRoute=null)=>{
    if(!channel)return;
    persistent.touchFavorite?.('channel', channel.channelId);
    persistent.recordLivePlay(channel, streamId);
-   globalLiveCache.selectedChannelId = channel.channelId;
-   if (streamId && Array.isArray(channel.streams)) {
-     const idx = channel.streams.findIndex(s => s.streamId === streamId);
-     if (idx >= 0) globalLiveCache.activeStreamIndex = idx;
+
+   let resolvedChannel = channel;
+   if (channel.deferredRef && (!channel.streams || !channel.streams.length)) {
+     try {
+       const streams = await resolveLiveChannelStreams(channel, { sources: persistent.sources });
+       if (streams && streams.length > 0) {
+         resolvedChannel = { ...channel, streams };
+       }
+     } catch (err) {
+       console.error('Failed to resolve live streams:', err);
+     }
    }
-   pageStateStore.patch('live', { channelId: channel.channelId, category: channel.category || '全部' });
-   sessionStateStore.patch({ tab: 'live', route: null, selected: null });
- };
- const openLiveChannel=(channel)=>{
-   playLive(channel);
- };
- const handleLiveBack = () => {
-   sessionStateStore.patch({ route: null, selected: null, tab: 'live' });
+
+   const preferredSource=persistent.settings?.defaultLiveSource||null;
+   const request=playbackService.createLiveRequest({channel:resolvedChannel,preferredSource,metadata:{title:resolvedChannel.name,category:resolvedChannel.category,channelId:resolvedChannel.channelId,channel:resolvedChannel,returnRoute}});
+   if(streamId){
+     const index=request.candidates.findIndex((candidate)=>candidate.streamId===streamId);
+     if(index>=0){
+       request.candidates=[request.candidates[index],...request.candidates.filter((_,i)=>i!==index)];
+       sourceManagementService.touchUsage(request.candidates[0]?.sourceId);
+     }
+   } else if(request.candidates[0]?.sourceId) {
+     sourceManagementService.touchUsage(request.candidates[0]?.sourceId);
+   }
+   sessionStateStore.patch({selected:request,route:'live-play',tab:'live'});
  };
  const movieActive=['detail','movie-play','search'].includes(route)||tab==='home'||tab==='movies';
  const isManagementTab = ['sources', 'settings', 'appearance', 'me', 'about', 'data-management', 'history', 'search-history'].includes(tab);
@@ -268,7 +296,11 @@ export function App(){
             <>
               {movieActive
                 ? <MovieFeature route={route} tab={tab} selected={selected} movies={contentState.movies} channels={contentState.channels} history={persistent.history} progress={persistent.progress} selectedSources={persistent.selectedSources} sources={persistent.sources} movieCategories={contentState.movieCategories} movieActiveCategory={contentState.movieActiveCategory} movieCategoryLoading={contentState.movieCategoryLoading} onLoadMovieCategory={(category)=>{setContentState(state=>({...state,movieActiveCategory:category??state.movieActiveCategory,movieCategoryLoading:true}));void reloadSources(undefined,{background:true,includeMovie:true,includeLive:false,movieCategoryId:category?.id??null,movieCategoryName:category?.name??''})}} onSelectMovieSource={setSourceActive} favorites={persistent.favorites} onMovie={openMovie} onPlay={playMovie} onTab={nav} onBack={()=>sessionStateStore.patch({route:route==='movie-play'?(selected?.metadata?.returnRoute||'detail'):null,selected:route==='movie-play'&&selected?.metadata?.returnRoute==='detail'?selected:null})} onLive={playLive} recordSearch={persistent.recordSearch} toggleFavorite={persistent.toggleFavorite}/>
-                : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>}
+                : route === 'live-channel'
+                  ? <LiveChannelPanel channel={selected} channels={contentState.channels} sources={persistent.sources} favorites={persistent.favorites} onBack={()=>sessionStateStore.patch({route:null,selected:null,tab:'live'})} onPlay={playLive} onChannel={openLiveChannel} toggleFavorite={persistent.toggleFavorite}/>
+                  : route === 'live-play'
+                    ? <PlaybackPage request={selected} kind="live" channels={contentState.channels} favorites={persistent.favorites} onChannel={openLiveChannel} onPlay={playLive} toggleFavorite={persistent.toggleFavorite} onTab={nav} onBack={handleLiveBack}/>
+                    : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>}
               {!sourceErrorDismissed && <ErrorState text="无法加载源" onClose={()=>setSourceErrorDismissed(true)}/>}
             </>
           );
@@ -277,6 +309,8 @@ export function App(){
         // 3. Show normal content features
         return movieActive 
           ? <MovieFeature route={route} tab={tab} selected={selected} movies={contentState.movies} channels={contentState.channels} history={persistent.history} progress={persistent.progress} selectedSources={persistent.selectedSources} sources={persistent.sources} movieCategories={contentState.movieCategories} movieActiveCategory={contentState.movieActiveCategory} movieCategoryLoading={contentState.movieCategoryLoading} onLoadMovieCategory={(category)=>{setContentState(state=>({...state,movieActiveCategory:category??state.movieActiveCategory,movieCategoryLoading:true}));void reloadSources(undefined,{background:true,includeMovie:true,includeLive:false,movieCategoryId:category?.id??null,movieCategoryName:category?.name??''})}} onSelectMovieSource={setSourceActive} favorites={persistent.favorites} onMovie={openMovie} onPlay={playMovie} onTab={nav} onBack={()=>sessionStateStore.patch({route:route==='movie-play'?(selected?.metadata?.returnRoute||'detail'):null,selected:route==='movie-play'&&selected?.metadata?.returnRoute==='detail'?selected:null})} onLive={playLive} recordSearch={persistent.recordSearch} toggleFavorite={persistent.toggleFavorite}/>
+          : route === 'live-channel' ? <LiveChannelPanel channel={selected} channels={contentState.channels} sources={persistent.sources} favorites={persistent.favorites} onBack={()=>sessionStateStore.patch({route:null,selected:null,tab:'live'})} onPlay={playLive} onChannel={openLiveChannel} toggleFavorite={persistent.toggleFavorite}/>
+          : route === 'live-play' ? <PlaybackPage request={selected} kind="live" channels={contentState.channels} favorites={persistent.favorites} onChannel={openLiveChannel} onPlay={playLive} toggleFavorite={persistent.toggleFavorite} onTab={nav} onBack={handleLiveBack}/>
           : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>;
       })()}
       

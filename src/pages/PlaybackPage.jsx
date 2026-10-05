@@ -390,16 +390,19 @@ function PlaybackView({
         />
       </SangtianPlayerWindow>
 
-      {/* 4. Floating Control Bar (VOD Only) */}
-      {!isLive && (
-        <SangtianFloatingBar
-          playbackRate={playbackRate}
-          isLive={isLive}
-          onChangeRate={handleChangePlaybackRate}
-          currentTime={playbackTime}
-          duration={totalDuration}
-        />
-      )}
+      {/* 4. Floating Control Bar */}
+      <SangtianFloatingBar
+        playbackRate={playbackRate}
+        isLive={isLive}
+        onChangeRate={handleChangePlaybackRate}
+        currentTime={playbackTime}
+        duration={totalDuration}
+        candidateLabel={candidateLabel}
+        candidates={candidates}
+        currentCandidateId={candidate?.candidateId}
+        onSelectCandidate={switchCandidate}
+        onOpenSourceModal={() => setSourceModalOpen(true)}
+      />
 
       {/* 5. Rich Console Console Card */}
       <SangtianConsoleCard

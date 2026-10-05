@@ -199,7 +199,7 @@ const SourceForm=({value,onCancel,onSave})=>{
   const [name,setName]=useState(value.name);
   const [url,setUrl]=useState(value.url||'');
   const [sourceType,setSourceType]=useState(value.sourceType);
-  const [liveMode,setLiveMode]=useState(value.liveMode||'generic');
+  const [liveMode,setLiveMode]=useState(value.liveMode||'tv1');
   const [localFileSources,setLocalFileSources]=useState(null);
   const [fileStatus,setFileStatus]=useState('');
   const handleFile=async(e)=>{
@@ -251,7 +251,7 @@ const SourceForm=({value,onCancel,onSave})=>{
           if (val.includes('#genre#')) setLiveMode('tv1');
         }
       }} placeholder="源地址 URL 或直接粘贴文本数据"/>
-      <label className="secondary" style={{padding:'10px 14px',borderRadius:10,border:'1px solid #303744',background:'#171b23',cursor:'pointer',display:'grid',placeItems:'center'}} title="选择本地文件">
+      <label className="secondary modal-upload-btn" title="选择本地文件">
         <Upload size={16}/>
         <input type="file" accept=".txt,.m3u,.json,text/plain,application/json" hidden onChange={handleFile}/>
       </label>

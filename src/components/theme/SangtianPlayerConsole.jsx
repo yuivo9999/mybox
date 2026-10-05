@@ -1044,6 +1044,11 @@ export function SangtianFloatingBar({
   currentTime = 0,
   duration = 0,
   isLive = false,
+  candidateLabel = '',
+  candidates = [],
+  currentCandidateId,
+  onSelectCandidate,
+  onOpenSourceModal,
 }) {
   const rates = [0.75, 1.0, 1.25, 1.5, 2.0];
 
@@ -1067,36 +1072,44 @@ export function SangtianFloatingBar({
     return `${h ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  const currentCand = candidates.find(c => c.candidateId === currentCandidateId) || candidates[0];
+  const displayLabel = candidateLabel || currentCand?.metadata?.label || currentCand?.label || '✦ 蓝光4K · 线路1';
   const timeString = `${formatTime(currentTime)} / ${formatTime(duration)}`;
 
   return (
     <div className="sangtian-floating-bar">
-      {!isLive && (
-        <div className="sangtian-zoom-controls">
-          <button
-            className="sangtian-zoom-btn"
-            onClick={() => handleCycleSpeed('down')}
-            title="减速播放"
-          >
-            -
-          </button>
-          <span className="sangtian-speed-label">{playbackRate}x</span>
-          <button
-            className="sangtian-zoom-btn"
-            onClick={() => handleCycleSpeed('up')}
-            title="加速播放"
-          >
-            +
-          </button>
-        </div>
-      )}
+      <div className="sangtian-zoom-controls">
+        <button
+          className="sangtian-zoom-btn"
+          onClick={() => handleCycleSpeed('down')}
+          title="减速播放"
+        >
+          -
+        </button>
+        <span className="sangtian-speed-label">{playbackRate}x</span>
+        <button
+          className="sangtian-zoom-btn"
+          onClick={() => handleCycleSpeed('up')}
+          title="加速播放"
+        >
+          +
+        </button>
+      </div>
 
       <div
         className="sangtian-model-pill"
-        style={{ cursor: 'default', userSelect: 'none' }}
+        onClick={onOpenSourceModal ? onOpenSourceModal : () => {
+          if (candidates.length > 1) {
+            const idx = candidates.findIndex(c => c.candidateId === currentCandidateId);
+            const nextIdx = (idx + 1) % candidates.length;
+            onSelectCandidate?.(candidates[nextIdx].candidateId);
+          }
+        }}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
       >
         <Sparkles size={14} className="sparkle-gold" />
-        <span className="model-pill-text">{timeString}</span>
+        <span className="model-pill-text">{isLive ? displayLabel : timeString}</span>
+        {isLive && <ChevronDown size={14} style={{ opacity: 0.7, marginLeft: 4 }} />}
       </div>
     </div>
   );
@@ -1127,7 +1140,7 @@ export function SangtianConsoleCard({
   onFav,
   isFav = false,
 }) {
-  const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info' | 'sources'
+  const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info'
   const [copiedLink, setCopiedLink] = useState(false);
   const [selectedLiveCat, setSelectedLiveCat] = useState('全部');
 
@@ -1257,29 +1270,33 @@ export function SangtianConsoleCard({
                 )}
 
                 {/* Channels Grid */}
-                <div className="sangtian-channel-selection-grid">
-                  {filteredLiveChannels.map((item) => {
-                    const isCurrent = item.channelId === activeItemId;
-                    return (
-                      <button
-                        key={item.channelId}
-                        type="button"
-                        className={`sangtian-channel-btn ${isCurrent ? 'active' : ''}`}
-                        onClick={() => onSelectRelated?.(item)}
-                      >
-                        <div className="channel-logo-mini">
-                          {item.logo ? <img src={item.logo} alt="" /> : <Radio size={14} />}
-                        </div>
-                        <div className="channel-info-mini">
-                          <span className="channel-name-mini">{item.name}</span>
-                          <span className="channel-sub-mini">
-                            {isCurrent ? '● 正在播放' : (item.category || '直播频道')}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                {filteredLiveChannels.length > 0 ? (
+                  <div className="sangtian-channel-selection-grid">
+                    {filteredLiveChannels.map((item) => {
+                      const isCurrent = item.channelId === activeItemId;
+                      return (
+                        <button
+                          key={item.channelId}
+                          type="button"
+                          className={`sangtian-channel-btn ${isCurrent ? 'active' : ''}`}
+                          onClick={() => onSelectRelated?.(item)}
+                        >
+                          <div className="channel-logo-mini">
+                            {item.logo ? <img src={item.logo} alt="" /> : <Radio size={14} />}
+                          </div>
+                          <div className="channel-info-mini">
+                            <span className="channel-name-mini">{item.name}</span>
+                            <span className="channel-sub-mini">
+                              {isCurrent ? '● 正在播放' : (item.category || '直播频道')}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="sangtian-empty-text">当前分类暂无频道</div>
+                )}
               </div>
             ) : episodes.length > 0 ? (
               <div className="sangtian-episode-grid">
