@@ -25,7 +25,24 @@ function isSupportedVODCandidate(candidate) {
 export const playbackService = {
   getVODCandidates({ content, episode, episodeIndex = 0, preferredSource = null } = {}) {
     if (!content || !episode) return [];
-    return sortCandidates((episode.playbackCandidates ?? []).filter(isSupportedVODCandidate).map((candidate, index) => normalizePlaybackCandidate({
+    let rawCandidates = Array.isArray(episode.playbackCandidates) && episode.playbackCandidates.length > 0
+      ? episode.playbackCandidates
+      : [];
+
+    if (!rawCandidates.length) {
+      const url = episode.playUrl || episode.url || episode.mediaUrl;
+      if (url) {
+        rawCandidates = [{
+          mediaUrl: url,
+          label: episode.label || '默认线路',
+          sourceId: episode.sourceId || content.sourceId || content.sourceRefs?.[0]?.sourceId || '',
+        }];
+      } else if (Array.isArray(content.playbackCandidates) && content.playbackCandidates.length > 0) {
+        rawCandidates = content.playbackCandidates;
+      }
+    }
+
+    return sortCandidates(rawCandidates.filter(isSupportedVODCandidate).map((candidate, index) => normalizePlaybackCandidate({
       ...candidate,
       kind: PlaybackKind.VOD,
       contentId: candidate.contentId ?? content.contentId,

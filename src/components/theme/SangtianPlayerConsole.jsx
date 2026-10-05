@@ -25,7 +25,7 @@ export function SangtianPlayerWindow({
   const [isSystemFullscreen, setIsSystemFullscreen] = useState(false);
   const [isWebFullscreen, setIsWebFullscreen] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-  const [aspectMode, setAspectMode] = useState('original');
+  const [aspectMode, setAspectMode] = useState('fill');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bufferedSeconds, setBufferedSeconds] = useState(0);
@@ -48,10 +48,10 @@ export function SangtianPlayerWindow({
 
   const streamUrl = resolvedInput?.url || candidate?.mediaUrl || candidate?.url || candidate?.metadata?.url || '';
   const aspectOptions = [
+    { id: 'fill', label: '铺满', title: '铺满画面（可能裁切）' },
     { id: 'original', label: '原始', title: '保持视频源比例' },
     { id: '16:9', label: '16:9', title: '16:9' },
     { id: '4:3', label: '4:3', title: '4:3' },
-    { id: 'fill', label: '铺满', title: '铺满画面（可能裁切）' },
   ];
   const currentAspect = aspectOptions.find(item => item.id === aspectMode) || aspectOptions[0];
 
@@ -156,6 +156,25 @@ export function SangtianPlayerWindow({
       controlsTimeoutRef.current = setTimeout(() => {
         setShowFullscreenBar(false);
       }, 4000);
+    }
+  };
+
+  const handleFullscreenBlankClick = (e) => {
+    if (!fullscreen || isLocked) return;
+    const isInteractive = Boolean(
+      e.target.closest('button, input, select, textarea, a, .setting-btn, .sidebar-channel-item, .sidebar-chip, .close-sidebar-btn, .sangtian-ep-btn, .quick-line-pill')
+    );
+    if (!isInteractive) {
+      e.stopPropagation();
+      setShowFullscreenBar(prev => {
+        const nextState = !prev;
+        if (!nextState) {
+          setShowLeftSidebar(false);
+          setShowRightSidebar(false);
+          setShowEpisodeSidebar(false);
+        }
+        return nextState;
+      });
     }
   };
 
@@ -365,7 +384,7 @@ export function SangtianPlayerWindow({
               <RotateCw size={13}/>
               <span>{isLandscape ? '竖屏' : '横屏'}</span>
             </button>
-            <button className={`sangtian-window-btn ${aspectMode !== 'original' ? 'active' : ''}`} onClick={handleCycleAspect} title={currentAspect.title}>
+            <button className={`sangtian-window-btn ${aspectMode !== 'fill' ? 'active' : ''}`} onClick={handleCycleAspect} title={currentAspect.title}>
               <Ratio size={13}/>
               <span>{currentAspect.label}</span>
             </button>
@@ -473,6 +492,117 @@ export function SangtianPlayerWindow({
               </div>
             )}
 
+            {/* Embedded Navigation Bar inside Video Window (Non-fullscreen) */}
+            {!fullscreen && !showTerminal && status !== 'error' && (
+              <div className={`sangtian-embedded-player-nav ${isLandscape ? 'mode-landscape' : 'mode-portrait'}`}>
+                {/* Embedded Top Control Bar */}
+                <div className="embedded-nav-top">
+                  <div className="embedded-nav-title-group">
+                    <span className="embedded-nav-title">{displayTitle}</span>
+                    {displayEpisode && <span className="embedded-nav-badge">{displayEpisode}</span>}
+                    {sourceLabel && <span className="embedded-nav-source">{sourceLabel}</span>}
+                  </div>
+                  <div className="embedded-nav-top-actions">
+                    {!isLive && episodes.length > 1 && (
+                      <button
+                        type="button"
+                        className="embedded-nav-btn"
+                        onClick={() => setShowEpisodeSidebar(!showEpisodeSidebar)}
+                        title="选集"
+                      >
+                        <ListVideo size={13} />
+                        <span>选集</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`embedded-nav-btn ${aspectMode !== 'fill' ? 'active' : ''}`}
+                      onClick={handleCycleAspect}
+                      title={currentAspect.title}
+                    >
+                      <Ratio size={13} />
+                      <span>{currentAspect.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`embedded-nav-btn ${isLandscape ? 'active' : ''}`}
+                      onClick={handleToggleLandscape}
+                      title="切换横竖屏"
+                    >
+                      <RotateCw size={13} />
+                      <span>{isLandscape ? '竖屏' : '横屏'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="embedded-nav-btn icon-only"
+                      onClick={handleToggleFullscreen}
+                      title="全屏"
+                    >
+                      <Maximize2 size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Embedded Bottom Control Bar */}
+                <div className="embedded-nav-bottom">
+                  {!isLive && (
+                    <div className="embedded-progress-row">
+                      <span className="time-text">{formatTime(currentTime)}</span>
+                      <input
+                        type="range"
+                        className="embedded-progress-slider"
+                        min="0"
+                        max={duration || 0}
+                        step="0.1"
+                        value={Math.min(currentTime, duration || 0)}
+                        onChange={e => handleSeek(e.target.value)}
+                        aria-label="播放进度"
+                      />
+                      <span className="time-text">{formatTime(duration)}</span>
+                    </div>
+                  )}
+
+                  <div className="embedded-controls-row">
+                    <div className="embedded-controls-left">
+                      <button
+                        type="button"
+                        className="embedded-play-btn"
+                        onClick={handlePlayPause}
+                        title={isPlaying ? '暂停' : '播放'}
+                      >
+                        {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                      </button>
+
+                      {!isLive && onPreviousEpisode && (
+                        <button type="button" className="embedded-icon-btn" onClick={onPreviousEpisode} title="上一集">
+                          <ChevronLeft size={16} />
+                          <span className="btn-text">上一集</span>
+                        </button>
+                      )}
+
+                      {!isLive && onNextEpisode && (
+                        <button type="button" className="embedded-icon-btn" onClick={onNextEpisode} title="下一集">
+                          <span className="btn-text">下一集</span>
+                          <ChevronRight size={16} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="embedded-controls-right">
+                      {!isLive && (
+                        <button type="button" className="embedded-nav-btn speed-btn" onClick={handleCycleRate} title="切换倍速">
+                          <span>{playbackRate}x</span>
+                        </button>
+                      )}
+                      <button type="button" className="embedded-nav-btn icon-only" onClick={handleToggleFullscreen} title="全屏">
+                        <Maximize2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Locked Screen Overlay */}
             {fullscreen && isLocked && (
               <div className="sangtian-fullscreen-lock-pill" onClick={(e) => { e.stopPropagation(); setIsLocked(false); }}>
@@ -485,11 +615,7 @@ export function SangtianPlayerWindow({
             {fullscreen && !isLocked && (
               <div
                 className={`sangtian-fullscreen-controls ${isLandscape ? 'landscape' : 'portrait'} ${showFullscreenBar ? 'visible' : ''}`}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) {
-                    setShowFullscreenBar(prev => !prev);
-                  }
-                }}
+                onClick={handleFullscreenBlankClick}
               >
                 {/* Fullscreen Top Bar */}
                 <div className="sangtian-fullscreen-topbar">
@@ -1034,7 +1160,7 @@ export function SangtianConsoleCard({
               <span className="section-eyebrow">
                 {isLive ? (filteredLiveChannels.length > 0 ? "LIVE CHANNELS · 频道切换" : "LIVE DIRECT · 当前直播") : "EPISODES · 选集列表"}
               </span>
-              <h4>{title}</h4>
+              <h4 className="movie-title-chinese-red">{title}</h4>
             </div>
 
             {isLive ? (
@@ -1129,7 +1255,7 @@ export function SangtianConsoleCard({
           <div className="console-info-section">
             <div className="console-section-header">
               <span className="section-eyebrow">{isLive ? "LIVE · 当前直播" : "OVERVIEW · 详细资料"}</span>
-              <h4>{title}</h4>
+              <h4 className="movie-title-chinese-red">{title}</h4>
             </div>
             {subtitle && <p className="console-subtitle">{subtitle}</p>}
             <p className="console-description">{description || '暂无剧情简介。'}</p>

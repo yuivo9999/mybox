@@ -61,7 +61,18 @@ function PlaybackView({
   // VOD / Movie Info
   const movie = useMemo(() => {
     if (isLive) return null;
-    return movies.find(item => item.contentId === request?.contentId);
+    const found = movies.find(item => item.contentId === request?.contentId);
+    if (found) return found;
+    if (request?.metadata?.movie) return request.metadata.movie;
+    if (request?.contentId) {
+      return {
+        contentId: request.contentId,
+        title: request?.metadata?.title || '未知影片',
+        poster: request?.metadata?.poster || '',
+        episodes: request?.metadata?.episodes || [],
+      };
+    }
+    return null;
   }, [movies, request, isLive]);
 
   const episodes = useMemo(() => {
@@ -281,6 +292,9 @@ function PlaybackView({
     <div className="player-page theme-sangtian-layout">
       {/* 1. Rich Top Bar Controls */}
       <SangtianTopBar
+        onBack={onBack}
+        title={isLive ? (channel?.name || request?.metadata?.title) : (movie?.title || request?.metadata?.title)}
+        subTitle={isLive ? (currentProgram?.title || '直播频道') : (currentEpisode?.title || `第 ${episodeIndex + 1} 集`)}
         onHamburger={() => setDrawerOpen(true)}
         onPreview={isLive ? undefined : () => {
           const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));

@@ -55,7 +55,18 @@ export function MoviePlaybackPage({
 
   // VOD / Movie Info
   const movie = useMemo(() => {
-    return movies.find(item => item.contentId === request?.contentId);
+    const found = movies.find(item => item.contentId === request?.contentId);
+    if (found) return found;
+    if (request?.metadata?.movie) return request.metadata.movie;
+    if (request?.contentId) {
+      return {
+        contentId: request.contentId,
+        title: request?.metadata?.title || '未知影片',
+        poster: request?.metadata?.poster || '',
+        episodes: request?.metadata?.episodes || [],
+      };
+    }
+    return null;
   }, [movies, request]);
 
   const episodes = useMemo(() => {
@@ -237,6 +248,9 @@ export function MoviePlaybackPage({
     <div className="player-page theme-sangtian-layout">
       {/* 1. Rich Top Bar Controls */}
       <SangtianTopBar
+        onBack={onBack}
+        title={movie?.title || request?.metadata?.title}
+        subTitle={currentEpisode?.title || `第 ${episodeIndex + 1} 集`}
         onHamburger={() => setDrawerOpen(true)}
         onPreview={() => {
           const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));

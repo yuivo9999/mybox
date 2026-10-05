@@ -99,6 +99,8 @@ export function App(){
    if(!movie)return;
    const episodes=(Array.isArray(movie.episodes)&&movie.episodes.length>0)
      ? movie.episodes
+     : (Array.isArray(movie.metadata?.episodes) && movie.metadata.episodes.length > 0)
+     ? movie.metadata.episodes
      : [{
          episodeId: `${movie.contentId || 'movie'}:ep:1`,
          title: '正片',
@@ -108,9 +110,10 @@ export function App(){
    const episode=episodes[episodeIndex]??episodes[0]; if(!episode)return;
    const progress=persistent.progress.find((item)=>item.contentId===movie.contentId&&item.episodeId===episode.episodeId);
    const preferredSource=sourceId||persistent.selectedSources?.movie||persistent.settings?.defaultMovieSource||null;
-   const request=playbackService.createVODRequest({content:movie,episode,episodeIndex,preferredSource,metadata:{title:movie.title,poster:movie.poster,episodeTitle:episode.title??'',sourceId:preferredSource,returnRoute,startPositionSeconds:persistent.settings?.autoplayResume?(progress?.completed?0:(progress?.positionSeconds??0)):0}});
+   const fullMovie={...movie,episodes};
+   const request=playbackService.createVODRequest({content:fullMovie,episode,episodeIndex,preferredSource,metadata:{title:movie.title,poster:movie.poster,episodeTitle:episode.title??'',sourceId:preferredSource,returnRoute,movie:fullMovie,episodes,startPositionSeconds:persistent.settings?.autoplayResume?(progress?.completed?0:(progress?.positionSeconds??0)):0}});
    if(preferredSource){const sourceCandidates=request.candidates.filter(candidate=>candidate.sourceId===preferredSource);if(sourceCandidates.length)request.candidates=sourceCandidates;sourceManagementService.touchUsage(preferredSource);}
-   sessionStateStore.patch({selected:request,route:'movie-play',tab:'movies'}); persistent.recordMoviePlay(movie,episodeIndex,sourceId);
+   sessionStateStore.patch({selected:request,route:'movie-play',tab:'movies'}); persistent.recordMoviePlay(fullMovie,episodeIndex,sourceId);
  };
  const testSource=async(source)=>{
    if(!source?.sourceId)return;
@@ -285,7 +288,7 @@ export function App(){
           : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>;
       })()}
       
-      {!route && <BottomNav tab={tab} onTab={nav}/>}
+      <BottomNav tab={tab} onTab={nav}/>
     </div>
   </div>
  );

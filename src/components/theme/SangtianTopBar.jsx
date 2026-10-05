@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Menu, MoreVertical, Play, Folder, Check, Copy, Palette, Settings, RotateCcw, Heart } from 'lucide-react';
+import { Menu, MoreVertical, Play, Folder, Check, Copy, Palette, Settings, RotateCcw, Heart, ChevronLeft, Film } from 'lucide-react';
 
 export function SangtianTopBar({
+  onBack,
+  title,
+  subTitle,
   onHamburger,
   onPreview,
   previewText = '预览区',
@@ -32,7 +35,18 @@ export function SangtianTopBar({
 
   return (
     <header className="sangtian-topbar">
-      <div className="sangtian-topbar-left">
+      <div className="sangtian-topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {onBack && (
+          <button
+            className="sangtian-icon-btn back-btn"
+            aria-label="返回"
+            onClick={onBack}
+            title="返回上一页"
+            style={{ background: '#382c22', borderColor: '#523f31', color: '#ffedd5' }}
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
         <button
           className="sangtian-icon-btn"
           aria-label="打开菜单"
@@ -41,6 +55,18 @@ export function SangtianTopBar({
         >
           <Menu size={20} />
         </button>
+        {title && (
+          <div className="topbar-movie-title" style={{ display: 'flex', flexDirection: 'column', marginLeft: '4px', maxWidth: '160px', overflow: 'hidden' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#fef3c7', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+              {title}
+            </span>
+            {subTitle && (
+              <span style={{ fontSize: '11px', color: '#9a8c7d', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                {subTitle}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="sangtian-topbar-center">
