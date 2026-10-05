@@ -3,11 +3,11 @@ import {
   Copy, Maximize2, Minimize2, RotateCw, Sparkles, Terminal, Paperclip,
   Play, Pause, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Rewind, FastForward,
   FileText, LayoutGrid, SlidersHorizontal, Check, RefreshCw, Ratio,
-  Lock, Unlock, ListVideo, Square
+  Lock, Unlock, ListVideo, Square, Heart
 } from 'lucide-react';
 
 export function SangtianPlayerWindow({
-  videoRef, status, error, resolvedInput, candidate, request, onRetry, onSwitchCandidate, onStop,
+  videoRef, controller, status, error, resolvedInput, candidate, request, onRetry, onSwitchCandidate, onStop,
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
   channels = [], activeChannel = null, activeStreamIndex = 0, onSelectChannel, onSwitchStreamIndex,
@@ -224,29 +224,29 @@ export function SangtianPlayerWindow({
   };
 
   const handleToggleFullscreen = async () => {
-    if (isLive && onToggleImmersive) {
-      onToggleImmersive();
-      return;
-    }
     if (onFullscreen) {
       onFullscreen();
       return;
     }
     const elem = videoContainerRef?.current?.parentElement || videoRef?.current?.parentElement || videoRef?.current;
-    const currentlyActive = isSystemFullscreen || isWebFullscreen;
+    const currentlyActive = isSystemFullscreen || isWebFullscreen || isImmersive;
 
     if (!currentlyActive) {
+      if (isLive && onToggleImmersive) {
+        onToggleImmersive(true);
+      }
       setIsWebFullscreen(true);
       setShowFullscreenBar(true);
       if (elem?.requestFullscreen) {
         try {
           await elem.requestFullscreen();
-        } catch {
-          // If requestFullscreen is restricted by iframe/browser security, Web Fullscreen provides 100% full coverage!
-        }
+        } catch {}
       }
       try { await screen.orientation?.lock?.(isLandscape ? 'landscape' : 'portrait'); } catch {}
     } else {
+      if (isLive && onToggleImmersive) {
+        onToggleImmersive(false);
+      }
       setIsWebFullscreen(false);
       setShowLeftSidebar(false);
       setShowRightSidebar(false);
@@ -266,26 +266,46 @@ export function SangtianPlayerWindow({
   };
 
   const handleSeek = value => {
-    const video = videoRef?.current;
-    if (!video || !Number.isFinite(video.duration)) return;
-    video.currentTime = Number(value);
-    setCurrentTime(Number(value));
+    const val = Number(value);
+    if (!Number.isFinite(val)) return;
+    if (controller?.seek) {
+      controller.seek(val);
+    } else {
+      const video = videoRef?.current;
+      if (video && Number.isFinite(video.duration)) {
+        video.currentTime = val;
+      }
+    }
+    setCurrentTime(val);
     resetControlsTimeout();
   };
 
   const handlePlayPause = () => {
-    const video = videoRef?.current;
-    if (!video) return;
-    if (video.paused) video.play().catch(() => {}); else video.pause();
+    if (controller) {
+      if (isPlaying) {
+        controller.pause();
+      } else {
+        controller.play().catch(() => {});
+      }
+    } else {
+      const video = videoRef?.current;
+      if (!video) return;
+      if (video.paused) video.play().catch(() => {}); else video.pause();
+    }
     resetControlsTimeout();
   };
 
   const handleSkip = seconds => {
     if (isLive) return;
-    const video = videoRef?.current;
-    if (!video || !Number.isFinite(video.duration)) return;
-    const nextTime = Math.max(0, Math.min(video.duration, (Number(video.currentTime) || 0) + seconds));
-    video.currentTime = nextTime;
+    const dur = duration || (videoRef?.current?.duration ?? 0);
+    const cur = currentTime || (videoRef?.current?.currentTime ?? 0);
+    if (dur <= 0) return;
+    const nextTime = Math.max(0, Math.min(dur, cur + seconds));
+    if (controller?.seek) {
+      controller.seek(nextTime);
+    } else if (videoRef?.current) {
+      videoRef.current.currentTime = nextTime;
+    }
     setCurrentTime(nextTime);
     resetControlsTimeout();
   };
@@ -296,7 +316,11 @@ export function SangtianPlayerWindow({
     const nextIndex = (currentIndex + 1) % rates.length;
     const nextRate = rates[nextIndex];
     onChangePlaybackRate?.(nextRate);
-    if (videoRef?.current) videoRef.current.playbackRate = nextRate;
+    if (controller?.setPlaybackRate) {
+      controller.setPlaybackRate(nextRate);
+    } else if (videoRef?.current) {
+      videoRef.current.playbackRate = nextRate;
+    }
     resetControlsTimeout();
   };
 
@@ -665,6 +689,27 @@ export function SangtianPlayerWindow({
                                 }}
                               >
                                 {c.metadata?.label || c.label || (c.index != null ? `线路 ${c.index + 1}` : `线路 ${idx + 1}`)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Live Stream Switcher */}
+                      {isLive && activeChannel?.streams?.length > 1 && (
+                        <div className="settings-group">
+                          <label>直播换线 ({activeChannel.streams.length})</label>
+                          <div className="settings-btn-grid vertical">
+                            {activeChannel.streams.map((stream, idx) => (
+                              <button
+                                key={stream.streamId || idx}
+                                className={`setting-btn ${activeStreamIndex === idx ? 'active' : ''}`}
+                                onClick={() => {
+                                  onSwitchStreamIndex?.(idx);
+                                  setShowRightSidebar(false);
+                                }}
+                              >
+                                {stream.label || `线路 ${idx + 1}`} {stream.protocol ? `· ${stream.protocol}` : ''}
                               </button>
                             ))}
                           </div>

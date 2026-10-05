@@ -147,7 +147,7 @@ function BatchSourceManager({sources,onBack,onEnabled,onTest,onRemove}){
 function SourceList({sources,onEnabled,onActive,onTest,onRemove}){
   const [removeId,setRemoveId]=useState(null);
   const removeSource=sources.find(source=>source.sourceId===removeId);
-  return <div className="source-list">{sources.map(source=>{
+  return <div className="source-list">{sources.map((source, index)=>{
     const isTesting = source.status === '测试中';
     const isUnsupported = String(source.sourceCapability || '').startsWith('tvbox-')
       || String(source.adapterType || '').startsWith('tvbox-');
@@ -159,7 +159,7 @@ function SourceList({sources,onEnabled,onActive,onTest,onRemove}){
       : isUnsupported ? 'TVBox扩展待适配' : '';
     const statusColor = (source.status==='正常'||source.status==='可用') ? '#22c55e' : (source.status==='不可用'||source.status==='异常') ? '#f87171' : isTesting ? '#38bdf8' : '#94a3b8';
     return (
-      <article className="source-card" key={source.sourceId}>
+      <article className="source-card" key={`${source.sourceId || 'src'}_${index}`}>
         <div className="source-card-main">
           <div className="source-card-icon"><Server size={19}/></div>
           <div className="source-card-info">

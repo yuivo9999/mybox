@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Heart, ListVideo, Film, RotateCw, Ratio, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ListVideo } from 'lucide-react';
 import { movieService } from '../../services/movieService.js';
 import { playbackService } from '../../services/playbackService.js';
 import { usePersistentState } from '../../state/usePersistentState.js';
@@ -8,7 +8,7 @@ import { SangtianDrawer } from '../../components/theme/SangtianDrawer.jsx';
 import {
   SangtianPlayerWindow,
   SangtianFloatingBar,
-  SangtianConsoleCard
+  SangtianConsoleCard,
 } from '../../components/theme/SangtianPlayerConsole.jsx';
 
 export function MoviePlaybackPage({
@@ -22,7 +22,7 @@ export function MoviePlaybackPage({
   onTab,
 }) {
   const { recordProgress, saveSettings, settings } = usePersistentState();
-  const progressRef = useRef({ currentTime: 0, duration: null, persistedAt: 0 });
+
   const [source, setSource] = useState(request?.metadata?.sourceId ?? request?.candidates?.[0]?.sourceId ?? '');
   const [candidate, setCandidate] = useState(request?.candidates?.[0] ?? null);
   const [status, setStatus] = useState('idle');
@@ -32,20 +32,58 @@ export function MoviePlaybackPage({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState('exo');
-  const videoRef = useRef(null);
-  const videoContainerRef = useRef(null);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(0);
 
-  const movie = movies.find(item => item.contentId === request?.contentId);
-  const episodes = movie?.episodes ?? request?.metadata?.episodes ?? [];
-  const episodeIndex = Math.max(0, episodes.findIndex(item => item.episodeId === request?.episodeId) ?? 0);
-  const currentEpisode = episodes[episodeIndex] ?? null;
+  const videoRef = useRef(null);
+  const playerWindowBodyRef = useRef(null);
+  const progressRef = useRef({ currentTime: 0, duration: null, persistedAt: 0 });
+
+  useEffect(() => {
+    let active = true;
+    const interval = setInterval(() => {
+      if (videoRef.current && active) {
+        setPlaybackTime(videoRef.current.currentTime || 0);
+        setTotalDuration(videoRef.current.duration || 0);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // VOD / Movie Info
+  const movie = useMemo(() => {
+    return movies.find(item => item.contentId === request?.contentId);
+  }, [movies, request]);
+
+  const episodes = useMemo(() => {
+    return movie?.episodes ?? request?.metadata?.episodes ?? [];
+  }, [movie, request]);
+
+  const episodeIndex = useMemo(() => {
+    return Math.max(0, episodes.findIndex(item => item.episodeId === request?.episodeId) ?? 0);
+  }, [episodes, request]);
+
+  const currentEpisode = useMemo(() => {
+    return episodes[episodeIndex] ?? null;
+  }, [episodes, episodeIndex]);
 
   const controller = useMemo(() => playbackService.createController(request, {
     onEvent: event => {
       if (event.event === 'error') setError(event.error || '播放候选失败');
+      if (event.event === 'released') setStatus('released');
+      if (event.event === 'stopped') setStatus('stopped');
+
+      // VOD Progress Tracking
       if (event.event === 'progress') {
         const currentTime = event.currentTime ?? 0;
         const duration = event.duration ?? null;
+        setPlaybackTime(currentTime);
+        if (duration && Number.isFinite(duration) && duration > 0) {
+          setTotalDuration(duration);
+        }
         progressRef.current = { ...progressRef.current, currentTime, duration };
         if (request?.contentId && request?.episodeId && currentTime - progressRef.current.persistedAt >= 15) {
           recordProgress(request.contentId, request.episodeId, currentTime, duration, false);
@@ -60,36 +98,82 @@ export function MoviePlaybackPage({
       }
     },
     onStateChange: setStatus,
-    onCandidateChange: setCandidate,
+    onCandidateChange: next => {
+      setCandidate(next);
+      setResolvedInput(null);
+      if (next) setError('');
+    },
     onResolvedInput: setResolvedInput,
     onParserError: ({ code }) => setError('解析失败：' + code),
-    onPlayerError: ({ error: playerError }) => setError(playerError?.message || '播放器加载失败'),
+    onPlayerError: ({ error: e }) => setError(e?.message || '播放器加载失败'),
     onExhausted: () => setStatus('error'),
   }), [request, recordProgress]);
 
   useEffect(() => {
     let active = true;
+    const onVisibility = () => void controller.handleAppState(document.visibilityState === 'hidden' ? 'background' : 'foreground');
+    document.addEventListener('visibilitychange', onVisibility);
+
     const player = controller.attachPlayer(videoRef.current);
     const initial = controller.start();
     setCandidate(initial);
+
     if (!initial) {
       setStatus('error');
       setError('没有可用的播放候选');
     } else {
-      controller.resolveAndLoad(initial).catch(errorValue => {
-        if (active) setError(errorValue?.message || '播放初始化失败');
+      controller.resolveAndLoad(initial).catch(e => {
+        if (active) setError(e?.message || '播放初始化失败');
       });
     }
+
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', onVisibility);
+
       if (request?.contentId && request?.episodeId && progressRef.current.currentTime > 0) {
         const progress = progressRef.current;
         recordProgress(request.contentId, request.episodeId, progress.currentTime, progress.duration, false);
       }
+
       controller.leave();
       void player;
     };
   }, [controller, request, recordProgress]);
+
+  useEffect(() => {
+    const body = playerWindowBodyRef.current;
+    if (!body || !controller?.setVideoViewBounds) return undefined;
+
+    const syncNativeVideoSurface = () => {
+      if (typeof window === 'undefined' || typeof body.getBoundingClientRect !== 'function') return;
+      const rect = body.getBoundingClientRect();
+      controller.setVideoViewBounds({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+    };
+
+    syncNativeVideoSurface();
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(syncNativeVideoSurface)
+      : null;
+    observer?.observe(body);
+    window.addEventListener('resize', syncNativeVideoSurface);
+    window.addEventListener('orientationchange', syncNativeVideoSurface);
+    const timer = window.setTimeout(syncNativeVideoSurface, 150);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncNativeVideoSurface);
+      window.removeEventListener('orientationchange', syncNativeVideoSurface);
+      window.clearTimeout(timer);
+    };
+  }, [controller]);
 
   const switchCandidate = id => {
     const next = controller.switchCandidate(id);
@@ -103,49 +187,64 @@ export function MoviePlaybackPage({
 
   const handleRetry = () => {
     setError('');
-    const nextCandidate = controller.start();
-    if (nextCandidate) {
-      controller.resolveAndLoad(nextCandidate).catch(errorValue => {
-        setError(errorValue?.message || '重新加载失败');
-      });
+    const retry = controller.start();
+    if (retry) {
+      controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
+    }
+  };
+
+  const handleStop = () => {
+    try {
+      controller.stop();
+    } catch (e) {
+      console.error("Stop controller failed:", e);
+    }
+    setResolvedInput(null);
+    try {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.src = "";
+        videoRef.current.removeAttribute('src');
+        try {
+          videoRef.current.load();
+        } catch {}
+      }
+    } catch (e) {
+      console.error("Pause video failed:", e);
     }
   };
 
   const handleChangePlaybackRate = rate => {
     setPlaybackRate(rate);
-    if (videoRef.current) {
+    if (controller?.setPlaybackRate) {
+      controller.setPlaybackRate(rate);
+    } else if (videoRef.current) {
       videoRef.current.playbackRate = rate;
     }
   };
-
-  const handleVideoEnded = () => {
-    if (episodeIndex < episodes.length - 1) {
-      onEpisode?.(movie, episodeIndex + 1, source, request?.metadata?.returnRoute || 'detail');
-    }
-  };
-
-  const candidates = request?.candidates ?? [];
-  const relatedMovies = movie ? movieService.getRelated({ movies, movie }) : [];
-  const activeStreamUrl = resolvedInput?.url || candidate?.url || candidate?.metadata?.url || '';
 
   const handleSelectTheme = newTheme => {
     saveSettings({ ...settings, theme: newTheme });
   };
 
-  const candidateLabel = candidate?.metadata?.label || candidate?.label || source || '默认线路';
+  const candidates = request?.candidates ?? [];
+  const relatedMovies = movie ? movieService.getRelated({ movies, movie }) : [];
+  const activeStreamUrl = resolvedInput?.url || candidate?.mediaUrl || candidate?.url || candidate?.metadata?.url || '';
+
+  const candidateLabel = candidate?.metadata?.label || candidate?.label || (candidate?.index != null ? `线路 ${candidate.index + 1}` : null) || '线路 1';
 
   return (
     <div className="player-page theme-sangtian-layout">
-      {/* 1. Top Bar */}
+      {/* 1. Rich Top Bar Controls */}
       <SangtianTopBar
         onHamburger={() => setDrawerOpen(true)}
         onPreview={() => {
-          const next = candidates.find(c => c.candidateId !== candidate?.candidateId);
+          const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));
           if (next) switchCandidate(next.candidateId);
         }}
-        previewText="换源"
+        previewText="切换源"
         workspaceText={`集数 ${episodeIndex + 1}`}
-        badgeRed={`${candidates.length || 8}`}
+        badgeRed={String(candidates.length)}
         badgeYellow="解析"
         onWorkspace={() => setSourceModalOpen(true)}
         currentTheme={settings?.theme || 'sangtian'}
@@ -172,41 +271,27 @@ export function MoviePlaybackPage({
         onSelectTheme={handleSelectTheme}
       />
 
-      {/* 2. Context Navigation Bar */}
-      <section className="movie-playback-context" aria-label="播放导航详情">
-        <div className="movie-playback-context-main">
-          <button className="movie-playback-back" type="button" onClick={onBack} aria-label="返回影视详情"><ChevronLeft size={18} /></button>
-          <div className="movie-playback-title">
-            <b>{movie?.title || request?.metadata?.title || '正在播放'}</b>
-            <span>{currentEpisode?.title || `第 ${episodeIndex + 1} 集`} · {candidateLabel}</span>
-          </div>
-          <button className="movie-playback-fav" type="button" onClick={() => request?.contentId && toggleFavorite?.('content', request.contentId)} aria-label="收藏">
-            <Heart size={17} fill={favorites.some(item => item.targetType === 'content' && item.targetId === request?.contentId) ? 'currentColor' : 'none'} />
-          </button>
-        </div>
-        <div className="movie-playback-context-actions">
-          <button type="button" disabled={episodeIndex <= 0} onClick={() => onEpisode?.(movie, episodeIndex - 1, source, request?.metadata?.returnRoute || 'detail')}><ChevronLeft size={15} />上一集</button>
-          <button type="button" onClick={() => setSourceModalOpen(true)}><ListVideo size={15} />选集/换源</button>
-          <button type="button" disabled={episodeIndex >= episodes.length - 1} onClick={() => onEpisode?.(movie, episodeIndex + 1, source, request?.metadata?.returnRoute || 'detail')}>下一集<ChevronRight size={15} /></button>
-        </div>
-      </section>
-
-      {/* 3. Fully Featured Video Playback Window */}
+      {/* 2. Fully Featured Video Playback Window with unified Controller */}
       <SangtianPlayerWindow
         videoRef={videoRef}
+        controller={controller}
+        videoContainerRef={playerWindowBodyRef}
         status={status}
         error={error}
         resolvedInput={resolvedInput}
         candidate={candidate}
         request={request}
         onRetry={handleRetry}
+        onStop={handleStop}
         onSwitchCandidate={() => {
-          const next = candidates.find(c => c.candidateId !== candidate?.candidateId);
+          const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));
           if (next) switchCandidate(next.candidateId);
         }}
+        terminalTag="VOD DECODE"
+        isLive={false}
         playbackRate={playbackRate}
         onChangePlaybackRate={handleChangePlaybackRate}
-        title={movie?.title || request?.metadata?.title || '正在播放'}
+        title={movie?.title || request?.metadata?.title}
         episodeLabel={currentEpisode?.title || `第 ${episodeIndex + 1} 集`}
         sourceLabel={candidateLabel}
         episodes={episodes}
@@ -217,14 +302,14 @@ export function MoviePlaybackPage({
         candidates={candidates}
         onSelectCandidate={switchCandidate}
         onOpenSourceModal={() => setSourceModalOpen(true)}
-        videoContainerRef={videoContainerRef}
-        terminalTag="VOD DECODE"
-        isLive={false}
-        channels={[]}
-        activeChannel={null}
-        activeStreamIndex={0}
         decoderEngine={decoderEngine}
         onChangeDecoderEngine={setDecoderEngine}
+        onTimeMetricsChange={(cur, dur) => {
+          setPlaybackTime(cur);
+          if (dur > 0 && Number.isFinite(dur)) {
+            setTotalDuration(dur);
+          }
+        }}
       >
         <video
           ref={videoRef}
@@ -232,41 +317,45 @@ export function MoviePlaybackPage({
           preload="metadata"
           poster={request?.metadata?.poster || movie?.poster}
           className="sangtian-video-element"
-          onEnded={handleVideoEnded}
         />
-        {status === 'error' && (
-          <div className="video-error" style={{ display: 'none' }}>
-            <span>{error}</span>
-            <button onClick={handleRetry}>重新播放</button>
-          </div>
-        )}
       </SangtianPlayerWindow>
 
-      {/* 4. Floating Control Bar */}
+      {/* 3. Floating Control Bar (VOD Only) */}
       <SangtianFloatingBar
         playbackRate={playbackRate}
+        isLive={false}
         onChangeRate={handleChangePlaybackRate}
-        currentCandidateLabel={`✦ ${candidateLabel}`}
-        onOpenSourceModal={() => setSourceModalOpen(true)}
+        currentTime={playbackTime}
+        duration={totalDuration}
       />
 
-      {/* 5. Console Card display */}
+      {/* 4. Rich Console Console Card with unified Back/Fav buttons */}
       <SangtianConsoleCard
         title={request?.metadata?.title || movie?.title || '精彩视频'}
         subtitle={`${movie?.year || '2026'} · ${movie?.category || '高清影音'} · 第 ${episodeIndex + 1} 集`}
-        description={movie?.description || '暂无视频简介。'}
+        description={movie?.description || '暂无内容简介。'}
         episodes={episodes}
         currentEpisodeId={request?.episodeId}
-        onSelectEpisode={idx => onEpisode?.(movie, idx, source, request?.metadata?.returnRoute || 'detail')}
+        onSelectEpisode={idx => {
+          onEpisode?.(movie, idx, source, request?.metadata?.returnRoute || 'detail');
+        }}
         candidates={candidates}
         currentCandidateId={candidate?.candidateId}
         onSelectCandidate={switchCandidate}
         streamUrl={activeStreamUrl}
         relatedItems={relatedMovies}
-        onSelectRelated={onMovie}
+        activeItemId={null}
+        onSelectRelated={next => {
+          if (next) onMovie?.(next);
+        }}
         onReplay={handleRetry}
         playerStatus={status}
         isLive={false}
+        onBack={onBack}
+        onFav={() => {
+          if (request?.contentId) toggleFavorite?.('content', request.contentId);
+        }}
+        isFav={favorites.some(item => item.targetId === request?.contentId)}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {
@@ -278,46 +367,99 @@ export function MoviePlaybackPage({
         }}
       />
 
-      {/* Source/Episode Selection modal */}
+      {/* 5. Context Navigation Bar for Movies with Centered Title */}
+      <section className="movie-playback-context" aria-label="播放导航详情" style={{ marginTop: 12 }}>
+        <div className="movie-playback-context-main" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '16px 0' }}>
+          <div className="movie-playback-title" style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            width: '100%',
+            margin: '0 auto',
+          }}>
+            <b style={{
+              fontSize: '22px',
+              letterSpacing: '0.2em',
+              textShadow: '3px 3px 6px rgba(0, 0, 0, 0.45)',
+              fontWeight: 'bold',
+              marginBottom: '6px',
+              color: 'var(--color-text-primary, #ecd9ba)'
+            }}>
+              {movie?.title || request?.metadata?.title || '正在播放'}
+            </b>
+            <span style={{
+              fontSize: '13px',
+              letterSpacing: '0.08em',
+              opacity: 0.85,
+              color: 'var(--color-text-muted, #b39b7d)'
+            }}>
+              {(currentEpisode?.title || `第 ${episodeIndex + 1} 集`)} · {candidateLabel}
+            </span>
+          </div>
+        </div>
+        <div className="movie-playback-context-actions">
+          <button type="button" disabled={episodeIndex <= 0} onClick={() => onEpisode?.(movie, episodeIndex - 1, source, request?.metadata?.returnRoute || 'detail')}><ChevronLeft size={15} />上一集</button>
+          <button type="button" onClick={() => setSourceModalOpen(true)}><ListVideo size={15} />选集/换源</button>
+          <button type="button" disabled={episodeIndex >= episodes.length - 1} onClick={() => onEpisode?.(movie, episodeIndex + 1, source, request?.metadata?.returnRoute || 'detail')}>下一集<ChevronRight size={15} /></button>
+        </div>
+      </section>
+
+      {/* Source Selection Modal */}
       {sourceModalOpen && (
         <div className="sangtian-modal-backdrop" onClick={() => setSourceModalOpen(false)}>
-          <div className="sangtian-modal" onClick={e => e.stopPropagation()}>
-            <h4>选择播放源与集数</h4>
-            {episodes.length > 0 && (
-              <div className="modal-episodes-section" style={{ marginBottom: 16 }}>
-                <h5>剧集选集</h5>
-                <div className="chips" style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                  {episodes.map((ep, idx) => (
-                    <button
-                      key={ep.episodeId}
-                      className={episodeIndex === idx ? 'active' : ''}
+          <div className="sangtian-modal-sheet" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-row">
+                <h3>播放线路与解析切换</h3>
+                <button className="close-btn" onClick={() => setSourceModalOpen(false)}>✕</button>
+              </div>
+            </div>
+
+            <div className="modal-body">
+              <div className="modal-section-title">可用线路 ({candidates.length})</div>
+              <div className="source-cards-grid">
+                {candidates.map((c, i) => {
+                  const isCurrent = c.candidateId === candidate?.candidateId;
+                  return (
+                    <div
+                      key={c.candidateId}
+                      className={`source-card ${isCurrent ? 'active' : ''}`}
                       onClick={() => {
-                        onEpisode?.(movie, idx, source, request?.metadata?.returnRoute || 'detail');
+                        switchCandidate(c.candidateId);
                         setSourceModalOpen(false);
                       }}
                     >
-                      {ep.title}
-                    </button>
-                  ))}
-                </div>
+                      <div className="card-top">
+                        <span className="source-name">{c.metadata?.label || c.label || `线路 ${i + 1}`}</span>
+                        {isCurrent && <span className="current-badge">正在使用</span>}
+                      </div>
+                      <div className="card-tags">
+                        <span className="tech-tag">{c.protocol || 'HTTP'}</span>
+                        <span className="tech-tag">{decoderEngine.toUpperCase()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-            <div>
-              <h5>线路 / 播放源</h5>
-              <div className="chips" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                {candidates.map((item, idx) => (
+
+              <div className="modal-section-title" style={{ marginTop: 20 }}>剧集选择 ({episodes.length} 集)</div>
+              <div className="episodes-grid-modal">
+                {episodes.map((ep, idx) => (
                   <button
-                    key={item.candidateId}
-                    className={candidate?.candidateId === item.candidateId ? 'active' : ''}
-                    onClick={() => { switchCandidate(item.candidateId); setSourceModalOpen(false); }}
+                    key={ep.episodeId || idx}
+                    type="button"
+                    className={`modal-ep-btn ${idx === episodeIndex ? 'active' : ''}`}
+                    onClick={() => {
+                      onEpisode?.(movie, idx, source, request?.metadata?.returnRoute || 'detail');
+                      setSourceModalOpen(false);
+                    }}
                   >
-                    {item.metadata?.label || item.label || (item.index != null ? `线路 ${item.index + 1}` : `线路 ${idx + 1}`)}
+                    {ep.title || `${idx + 1}`}
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="actions" style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary" onClick={() => setSourceModalOpen(false)}>完成</button>
             </div>
           </div>
         </div>

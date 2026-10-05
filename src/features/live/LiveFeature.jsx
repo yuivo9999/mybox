@@ -171,42 +171,55 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const livePlaybackRequest = useMemo(() => {
     if (!activeChannel?.streams?.length) return null;
     return playbackService.createLiveRequest({ channel: activeChannel });
-  }, [activeChannel]);
+  }, [activeChannel?.channelId, activeChannel?.streams]);
 
   const [playbackCandidate, setPlaybackCandidate] = useState(null);
   const [playbackStatus, setPlaybackStatus] = useState('idle');
   const [playbackError, setPlaybackError] = useState('');
   const [resolvedPlaybackInput, setResolvedPlaybackInput] = useState(null);
 
-  const playbackController = useMemo(() => livePlaybackRequest
-    ? playbackService.createController(livePlaybackRequest, {
-        onStateChange: setPlaybackStatus,
-        onCandidateChange: next => {
-          setPlaybackCandidate(next);
-          if (next) {
-            setPlaybackError('');
-            const index = livePlaybackRequest.candidates.findIndex(item => item.candidateId === next.candidateId);
-            if (index >= 0) setActiveStreamIndex(index);
+  const activeStreamIndexRef = useRef(activeStreamIndex);
+  activeStreamIndexRef.current = activeStreamIndex;
+  const livePlaybackRequestRef = useRef(livePlaybackRequest);
+  livePlaybackRequestRef.current = livePlaybackRequest;
+  const playbackControllerRef = useRef(null);
+
+  const playbackController = useMemo(() => {
+    if (!livePlaybackRequest) return null;
+    const ctrl = playbackService.createController(livePlaybackRequest, {
+      onStateChange: setPlaybackStatus,
+      onCandidateChange: next => {
+        setPlaybackCandidate(next);
+        if (next) {
+          setPlaybackError('');
+          const req = livePlaybackRequestRef.current;
+          const index = req?.candidates?.findIndex(item => item.candidateId === next.candidateId);
+          if (index != null && index >= 0) setActiveStreamIndex(index);
+        }
+      },
+      onResolvedInput: setResolvedPlaybackInput,
+      onPlayerError: ({ error }) => {
+        const errMsg = error?.message || '播放器加载失败';
+        setPlaybackError(errMsg);
+        // Automatic stream fallback retry for live channels with multiple lines
+        const req = livePlaybackRequestRef.current;
+        const curIdx = activeStreamIndexRef.current;
+        if (req?.candidates?.length > 1 && curIdx + 1 < req.candidates.length) {
+          const nextIndex = curIdx + 1;
+          setActiveStreamIndex(nextIndex);
+          const candidate = req.candidates[nextIndex];
+          if (candidate && playbackControllerRef.current) {
+            playbackControllerRef.current.switchCandidate(candidate.candidateId);
           }
-        },
-        onResolvedInput: setResolvedPlaybackInput,
-        onPlayerError: ({ error }) => {
-          const errMsg = error?.message || '播放器加载失败';
-          setPlaybackError(errMsg);
-          // Automatic stream fallback retry for live channels with multiple lines
-          if (activeChannel?.streams?.length > 1 && activeStreamIndex + 1 < activeChannel.streams.length) {
-            const nextIndex = activeStreamIndex + 1;
-            setActiveStreamIndex(nextIndex);
-            const candidate = livePlaybackRequest?.candidates?.[nextIndex];
-            if (candidate && playbackController) {
-              playbackController.switchCandidate(candidate.candidateId);
-            }
-          }
-        },
-        onParserError: ({ code }) => setPlaybackError('解析失败：' + code),
-        onExhausted: () => setPlaybackStatus('error'),
-      })
-    : null, [livePlaybackRequest, activeChannel, activeStreamIndex]);
+        }
+      },
+      onParserError: ({ code }) => setPlaybackError('解析失败：' + code),
+      onExhausted: () => setPlaybackStatus('error'),
+    });
+    playbackControllerRef.current = ctrl;
+    return ctrl;
+  }, [livePlaybackRequest]);
+  playbackControllerRef.current = playbackController;
 
   // Load current EPG program details when active channel changes
   useEffect(() => {
@@ -369,12 +382,37 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     return allChannels.filter(c => (c.category || '未分类') === selectedCategory);
   }, [allChannels, selectedCategory]);
 
+  const handleSwitchStream = (index) => {
+    setActiveStreamIndex(index);
+    const candidate = livePlaybackRequest?.candidates?.[index];
+    if (candidate && playbackController) {
+      playbackController.switchCandidate(candidate.candidateId);
+      setPlaybackCandidate(candidate);
+      setPlaybackError('');
+      setResolvedPlaybackInput(null);
+    }
+  };
+
+  const handleStartImmersivePlay = async (channelToPlay = activeChannel, streamId = activeStream?.streamId) => {
+    if (!channelToPlay) return;
+    if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
+      await loadChannelStreams(channelToPlay);
+    }
+    selectChannel(channelToPlay);
+    if (onPlay) {
+      onPlay(channelToPlay, streamId);
+    } else {
+      setIsImmersive(true);
+    }
+  };
+
   return (
     <Page>
       <Header title="直播" />
 
       <SangtianPlayerWindow
         videoRef={videoRef}
+        controller={playbackController}
         videoContainerRef={playerWindowBodyRef}
         status={playbackStatus}
         candidate={activeStream ? {
@@ -382,7 +420,9 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           url: playbackCandidate?.mediaUrl || activeStream.url,
           protocol: playbackCandidate?.protocol || activeStream.protocol || 'HLS/M3U8',
           sourceId: playbackCandidate?.sourceId || activeStream.sourceId,
+          candidateId: playbackCandidate?.candidateId,
         } : { label: '请选择频道', protocol: 'LIVE' }}
+        candidates={livePlaybackRequest?.candidates ?? []}
         error={playbackError}
         resolvedInput={resolvedPlaybackInput}
         isLive
@@ -391,23 +431,43 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         activeChannel={activeChannel}
         activeStreamIndex={activeStreamIndex}
         onSelectChannel={selectChannel}
-        onSwitchStreamIndex={idx => {
-          setActiveStreamIndex(idx);
-          const candidate = livePlaybackRequest?.candidates?.[idx];
-          if (candidate && playbackController) playbackController.switchCandidate(candidate.candidateId);
+        onSwitchStreamIndex={handleSwitchStream}
+        onSwitchCandidate={id => {
+          const idx = livePlaybackRequest?.candidates?.findIndex(c => c.candidateId === id);
+          if (idx != null && idx >= 0) handleSwitchStream(idx);
+        }}
+        onRetry={() => {
+          setPlaybackError('');
+          if (playbackController) {
+            const initial = playbackController.start();
+            if (initial) {
+              setPlaybackCandidate(initial);
+              playbackController.resolveAndLoad(initial).catch(err => setPlaybackError(err?.message || '播放重试失败'));
+            }
+          }
         }}
         onStop={() => {
-          playbackController?.stop();
-          if (videoRef.current) {
-            videoRef.current.pause();
-            videoRef.current.removeAttribute('src');
-            videoRef.current.load();
+          try {
+            playbackController?.stop();
+          } catch (e) {
+            console.error("Stop live controller failed:", e);
+          }
+          setResolvedPlaybackInput(null);
+          try {
+            if (videoRef.current) {
+              videoRef.current.pause();
+              videoRef.current.src = "";
+              videoRef.current.removeAttribute('src');
+              try { videoRef.current.load(); } catch {}
+            }
+          } catch (e) {
+            console.error("Pause live video failed:", e);
           }
         }}
         decoderEngine={decoderEngine}
         onChangeDecoderEngine={setDecoderEngine}
         isImmersive={isImmersive}
-        onToggleImmersive={() => setIsImmersive(false)}
+        onToggleImmersive={() => setIsImmersive(v => !v)}
       />
 
       {activeChannel && (
@@ -431,11 +491,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
                       key={stream.streamId || index}
                       type="button"
                       className={`switcher-pill ${activeStreamIndex === index ? 'active' : ''}`}
-                      onClick={() => {
-                        setActiveStreamIndex(index);
-                        const candidate = livePlaybackRequest?.candidates?.[index];
-                        if (candidate && playbackController) playbackController.switchCandidate(candidate.candidateId);
-                      }}
+                      onClick={() => handleSwitchStream(index)}
                     >
                       {stream.label || '线路 ' + (index + 1)}
                     </button>
@@ -457,7 +513,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
             <button
               type="button"
               className="primary live-play-btn"
-              onClick={() => onPlay?.(activeChannel, activeStream?.streamId)}
+              onClick={() => handleStartImmersivePlay(activeChannel, activeStream?.streamId)}
               disabled={!activeChannel}
             >
               <Play size={14} />
@@ -546,7 +602,10 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
                       type="button"
                       aria-label={`沉浸播放 ${channel.name}`}
                       className="card-play-btn secondary icon-button"
-                      onClick={e => { e.stopPropagation(); selectChannel(channel); onPlay?.(channel); }}
+                      onClick={async e => {
+                        e.stopPropagation();
+                        await handleStartImmersivePlay(channel);
+                      }}
                     >
                       <Play size={16} />
                     </button>

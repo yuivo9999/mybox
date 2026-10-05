@@ -143,6 +143,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
     play(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');return video.play()??Promise.resolve();},
     pause(){video.pause();return true;},
     seek(seconds){if(!Number.isFinite(seconds))return false;if(!Number.isFinite(video.duration)&&!video.seekable?.length)return false;video.currentTime=Math.max(0,seconds);return video.currentTime;},
+    setPlaybackRate(rate){const r=Number(rate);if(Number.isFinite(r)&&r>0){video.playbackRate=r;}return video.playbackRate;},
     stop(){
       cleanupHls();
       try { video.pause(); } catch {}

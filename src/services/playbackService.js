@@ -37,17 +37,17 @@ export const playbackService = {
 
   getLiveCandidates(channel) {
     if (!channel) return [];
-    return sortCandidates((channel.streams ?? []).map((stream, index) => normalizePlaybackCandidate({
+    return (channel.streams ?? []).map((stream, index) => normalizePlaybackCandidate({
       ...stream,
       mediaUrl: stream.mediaUrl ?? stream.url,
       kind: PlaybackKind.LIVE,
       channelId: channel.channelId,
       sourceId: stream.sourceId ?? channel.sourceRefs?.[0]?.sourceId,
-      streamId: stream.streamId,
-      priority: stream.priority ?? -index,
-      metadata: { channelName: channel.name, ...(stream.metadata ?? {}) },
+      streamId: stream.streamId || `stream-${channel.channelId}-${index + 1}`,
+      priority: Number.isFinite(stream.priority) ? stream.priority : -index,
+      metadata: { channelName: channel.name, streamIndex: index, label: stream.label || `线路 ${index + 1}`, ...(stream.metadata ?? {}) },
       playerHint: { ...(stream.playerHint ?? {}), autoplay: true },
-    })));
+    }));
   },
 
   createVODRequest({ content, episode, episodeIndex = 0, preferredSource = null, metadata } = {}) {
@@ -61,10 +61,14 @@ export const playbackService = {
   },
 
   createLiveRequest({ channel, preferredSource = null, metadata } = {}) {
+    const rawCandidates = this.getLiveCandidates(channel);
+    const candidates = preferredSource
+      ? [...rawCandidates].sort((a, b) => (a.sourceId === preferredSource ? -1 : 0) - (b.sourceId === preferredSource ? -1 : 0))
+      : rawCandidates;
     return createPlaybackRequest({
       kind: PlaybackKind.LIVE,
       channelId: channel?.channelId,
-      candidates: this.getLiveCandidates(channel).sort((a, b) => (preferredSource && a.sourceId === preferredSource ? -1 : 0) - (preferredSource && b.sourceId === preferredSource ? -1 : 0)),
+      candidates,
       metadata,
     });
   },
@@ -88,6 +92,15 @@ export const playbackService = {
       setVideoViewBounds: bounds => core.setVideoViewBounds(bounds),
       pause: () => core.pause(),
       play: () => core.play(),
+      seek: seconds => core.seek(seconds),
+      setPlaybackRate: rate => core.setPlaybackRate?.(rate),
+      setVolume: volume => core.setVolume(volume),
+      getAudioTracks: () => core.getAudioTracks(),
+      getSubtitleTracks: () => core.getSubtitleTracks(),
+      selectAudioTrack: id => core.selectAudioTrack(id),
+      selectSubtitleTrack: id => core.selectSubtitleTrack(id),
+      getQualities: () => core.getQualities(),
+      selectQuality: id => core.selectQuality(id),
       stop: () => core.stop(),
       handleAppState: state => core.handleAppState(state),
       leave: () => {
@@ -188,7 +201,8 @@ export function createPlaybackTask(request) {
     },
     switchCandidate(candidateId) {
       const index = snapshot.candidates.findIndex((candidate) => candidate.candidateId === candidateId);
-      if (index < 0 || failedCandidates.has(candidateId)) return null;
+      if (index < 0) return null;
+      failedCandidates.delete(candidateId);
       if (isPlaybackCandidateExpired(snapshot.candidates[index])) {
         failedCandidates.add(candidateId);
         emit('error', { candidateId, code: PlaybackFailureCode.EXPIRED, error: 'PLAYBACK_CANDIDATE_EXPIRED' });

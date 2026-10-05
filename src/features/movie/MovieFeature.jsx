@@ -223,11 +223,11 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
     }}
   />
   <div className="category-chip-bar" role="tablist" aria-label="影视分类">
-    {categoryItems.map(category => {
+    {categoryItems.map((category, index) => {
       const isSelected = active?.id === category.id || (!active && category.id === 'all');
       return (
         <button
-          key={category.sourceId + ':' + category.id + ':' + category.name}
+          key={`${category.sourceId || ''}:${category.id || ''}:${category.name || ''}:${index}`}
           className={'category-chip' + (isSelected ? ' active' : '')}
           disabled={movieCategoryLoading}
           role="tab"
@@ -251,8 +251,8 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
         <span style={{ fontSize: 12, color: '#8f9aaa' }}>{currentMovies.length} 部内容</span>
       </div>
       <div className="movie-grid">
-        {currentMovies.slice(0, 6).map(movie => (
-          <MovieCard key={movie.contentId || movie.title} movie={movie} onClick={onMovie} priority />
+        {currentMovies.slice(0, 6).map((movie, index) => (
+          <MovieCard key={movie.contentId ? `${movie.contentId}_${index}` : `hero_${index}`} movie={movie} onClick={onMovie} priority />
         ))}
       </div>
 
@@ -336,8 +336,8 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
         <>
           <SectionTitle title="✨ 更多内容推荐" />
           <div className="movie-grid">
-            {currentMovies.slice(6).map(movie => (
-              <MovieCard key={movie.contentId || movie.title} movie={movie} onClick={onMovie} />
+            {currentMovies.slice(6).map((movie, index) => (
+              <MovieCard key={movie.contentId ? `${movie.contentId}_more_${index}` : `more_${index}`} movie={movie} onClick={onMovie} />
             ))}
           </div>
         </>
@@ -363,8 +363,8 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
         <span style={{ fontSize: 12, color: '#8f9aaa' }}>{currentMovies.length} 部内容</span>
       </div>
       <div className="movie-grid">
-        {currentMovies.map(movie => (
-          <MovieCard key={movie.contentId || movie.title} movie={movie} onClick={onMovie} />
+        {currentMovies.map((movie, index) => (
+          <MovieCard key={movie.contentId ? `${movie.contentId}_cat_${index}` : `cat_${index}`} movie={movie} onClick={onMovie} />
         ))}
       </div>
       <div style={{ textAlign: 'center', margin: '8px 0 24px' }}>
@@ -446,13 +446,13 @@ function MovieSourcePill({ sources=[], selectedSource, onChange }){
               </button>
             </div>
             <div className="source-selector-list" role="radiogroup" aria-label="影视源列表">
-              {sources.map(source => {
+              {sources.map((source, index) => {
                 const checked = draftSourceId === source.sourceId;
                 return (
                   <button
                     className={'source-selector-item' + (checked ? ' selected' : '')}
                     type="button"
-                    key={source.sourceId}
+                    key={`${source.sourceId || 'src'}_${index}`}
                     role="radio"
                     aria-checked={checked}
                     onClick={() => setDraftSourceId(source.sourceId)}
@@ -562,11 +562,11 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
 
   {categories.length > 0 && (
     <div className="category-chip-bar" role="tablist" aria-label="影视分类">
-      {categories.map(item => {
+      {categories.map((item, index) => {
         const selected = (activeCategory?.id === item.id) || (state.category === item.name);
         return (
           <button
-            key={item.sourceId + ':' + item.id + ':' + item.name}
+            key={`${item.sourceId || ''}:${item.id || ''}:${item.name || ''}:${index}`}
             className={'category-chip' + (selected ? ' active' : '')}
             disabled={movieCategoryLoading}
             role="tab"
@@ -598,8 +598,8 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
   {pagedMovies.length > 0 ? (
     <>
       <div className="movie-grid">
-        {pagedMovies.map(movie => (
-          <MovieCard key={movie.contentId || movie.title} movie={movie} onClick={onMovie} />
+        {pagedMovies.map((movie, index) => (
+          <MovieCard key={movie.contentId ? `${movie.contentId}_paged_${index}` : `paged_${index}`} movie={movie} onClick={onMovie} />
         ))}
       </div>
       <div className="pagination">
@@ -665,7 +665,7 @@ function GlobalMovieSearch({query,sources=[],onMovie,onPlay}){
 
 function MovieSearchList({movies=[],onMovie}){ 
  return <div className="movie-search-list">
-   {movies.map((movie,index)=><button className="movie-search-list-item" key={movie.contentId||movie.episodeId||movie.sourceId+':'+index} type="button" onClick={()=>onMovie?.(movie)}>
+   {movies.map((movie,index)=><button className="movie-search-list-item" key={`${movie.contentId||movie.episodeId||movie.sourceId||'movie'}_${index}`} type="button" onClick={()=>onMovie?.(movie)}>
      <span className="movie-search-list-poster"><SmartImage src={movie.poster} alt="" fallback={<div className="image-placeholder"><Film size={18}/></div>}/></span>
      <span className="movie-search-list-copy"><b>{movie.title||'未命名'}</b><small>{movie.year||'—'} · {movie.category||'—'}{movie.episodeCount?' · '+movie.episodeCount+'集':''}</small></span>
      <ChevronRight size={17}/>
@@ -826,8 +826,8 @@ function MovieDetail({movie,movies,sources=[],selectedSourceId,onMovie,onBack,on
    {/* 来源切换与其它源搜索 */}
    <SectionTitle title="播放来源" action="全网搜同名 >" onAction={() => setOtherSourceSearchOpen(true)} />
    <div className="chips" style={{ marginBottom: 12 }}>
-     {sourceIds.length ? sourceIds.map(id => (
-       <button className={sourceId === id ? 'active' : ''} key={id} onClick={() => setSourceId(id)}>
+     {sourceIds.length ? sourceIds.map((id, index) => (
+       <button className={sourceId === id ? 'active' : ''} key={`${id}_${index}`} onClick={() => setSourceId(id)}>
          {sourceMap.get(id) || id}
        </button>
      )) : <span>默认影视源</span>}
@@ -889,8 +889,8 @@ function OtherSourceSearchDialog({title,currentSourceId,sources=[],onClose,onMov
        {state.loading&&<span className="android-search-live-dot" aria-label="流式显示中">流式</span>}
      </div>
      <div className="android-search-results">
-       {state.results.filter(group=>(group.items?.length??0)>0).map(group=>
-         <section className="android-search-source-group" key={group.sourceId}>
+       {state.results.filter(group=>(group.items?.length??0)>0).map((group, idx)=>
+         <section className="android-search-source-group" key={`${group.sourceId || 'src'}_${idx}`}>
            <div className="android-search-source-title"><b>{group.sourceName}</b><span>{group.items.length} 条</span></div>
            <MovieSearchList movies={group.items} onMovie={item=>{if(onPlay) onPlay(item,0,item?.sourceId,'detail'); else onMovie(item);}}/>
          </section>

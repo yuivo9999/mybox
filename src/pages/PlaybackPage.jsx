@@ -322,6 +322,7 @@ function PlaybackView({
       {/* 1. Fully Featured Video Playback Window */}
       <SangtianPlayerWindow
         videoRef={videoRef}
+        controller={controller}
         videoContainerRef={playerWindowBodyRef}
         status={status}
         error={error}
@@ -342,7 +343,10 @@ function PlaybackView({
         activeChannel={isLive ? channel : null}
         activeStreamIndex={isLive ? (request?.candidates?.findIndex(item => item.candidateId === candidate?.candidateId) ?? 0) : 0}
         onSelectChannel={onChannel}
-        onSwitchStreamIndex={isLive ? switchCandidate : undefined}
+        onSwitchStreamIndex={isLive ? (idx => {
+          const targetCandidate = candidates[idx] || request?.candidates?.[idx];
+          if (targetCandidate) switchCandidate(targetCandidate.candidateId);
+        }) : undefined}
         title={isLive ? (request?.metadata?.title ?? channel?.name ?? 'LIVE 直播') : (movie?.title || request?.metadata?.title)}
         episodeLabel={isLive ? '' : (currentEpisode?.title || `第 ${episodeIndex + 1} 集`)}
         sourceLabel={candidateLabel}

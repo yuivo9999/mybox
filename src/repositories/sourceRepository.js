@@ -24,6 +24,28 @@ function normalizeSource(source = {}) {
 }
 
 export const sourceRepository = {
-  getAll: (fallback = []) => storage.read('sources', fallback),
-  saveAll: (sources) => storage.write('sources', (Array.isArray(sources) ? sources : []).map(normalizeSource)),
+  getAll: (fallback = []) => {
+    const raw = storage.read('sources', fallback);
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const unique = [];
+    for (const item of raw) {
+      const id = item?.sourceId ? String(item.sourceId) : null;
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      unique.push(item);
+    }
+    return unique;
+  },
+  saveAll: (sources) => {
+    const items = (Array.isArray(sources) ? sources : []).map(normalizeSource);
+    const seen = new Set();
+    const unique = [];
+    for (const item of items) {
+      if (seen.has(item.sourceId)) continue;
+      seen.add(item.sourceId);
+      unique.push(item);
+    }
+    return storage.write('sources', unique);
+  },
 };
