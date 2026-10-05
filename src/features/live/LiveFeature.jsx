@@ -6,6 +6,7 @@ import { requestManager } from '../../services/requestManager.js';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
+import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
 
 export function createLiveFeature({ channels = [] } = {}) {
   return {
@@ -71,11 +72,19 @@ export function LiveFeature({
   toggleFavorite,
 }) {
   const page = usePageState();
+  const videoRef = useRef(null);
+  const playerWindowBodyRef = useRef(null);
+  const [selectedChannelId, setSelectedChannelId] = useState(globalLiveCache.selectedChannelId);
   const [selectedCategory, setSelectedCategory] = useState(globalLiveCache.selectedCategory || page?.live?.category || '全部');
+  const [activeStreamIndex, setActiveStreamIndex] = useState(globalLiveCache.activeStreamIndex || 0);
   const [tv1Channels, setTv1Channels] = useState(globalLiveCache.tv1Channels || []);
   const [tv1Loading, setTv1Loading] = useState(false);
   const [tv1LoadedCount, setTv1LoadedCount] = useState(globalLiveCache.tv1Channels?.length || 0);
   const [tv1Error, setTv1Error] = useState(null);
+  const [playbackStatus, setPlaybackStatus] = useState('idle');
+  const [playbackError, setPlaybackError] = useState('');
+  const [resolvedPlaybackInput, setResolvedPlaybackInput] = useState(null);
+  const [decoderEngine, setDecoderEngine] = useState('exo');
 
   const enabledTv1Sources = useMemo(
     () => sources.filter(source => source.sourceType === 'live' && source.liveMode === 'tv1' && source.enabled !== false),
@@ -131,6 +140,54 @@ export function LiveFeature({
 
   const allChannels = useMemo(() => [...channels, ...tv1Channels], [channels, tv1Channels]);
 
+  const activeChannel = useMemo(() => {
+    if (selectedChannelId) {
+      const found = allChannels.find(c => c.channelId === selectedChannelId);
+      if (found) return found;
+    }
+    return allChannels[0] || null;
+  }, [allChannels, selectedChannelId]);
+
+  const livePlaybackRequest = useMemo(() => {
+    if (!activeChannel) return null;
+    return playbackService.createLiveRequest({ channel: activeChannel });
+  }, [activeChannel]);
+
+  const activeStream = useMemo(() => {
+    if (!activeChannel?.streams?.length) return null;
+    return activeChannel.streams[activeStreamIndex] || activeChannel.streams[0];
+  }, [activeChannel, activeStreamIndex]);
+
+  const playbackController = useMemo(() => {
+    if (!livePlaybackRequest) return null;
+    return playbackService.createController(livePlaybackRequest, {
+      onEvent: event => {
+        if (event.event === 'error') setPlaybackError(event.error || '播放失败');
+        if (event.event === 'stopped') setPlaybackStatus('stopped');
+      },
+      onStateChange: setPlaybackStatus,
+      onCandidateChange: cand => {
+        setResolvedPlaybackInput(null);
+        if (cand) setPlaybackError('');
+      },
+      onResolvedInput: setResolvedPlaybackInput,
+      onPlayerError: ({ error: e }) => setPlaybackError(e?.message || '加载失败'),
+    });
+  }, [livePlaybackRequest]);
+
+  useEffect(() => {
+    if (!playbackController || !videoRef.current) return;
+    const player = playbackController.attachPlayer(videoRef.current);
+    const initial = playbackController.start();
+    if (initial) {
+      playbackController.resolveAndLoad(initial).catch(error => setPlaybackError(error?.message || '初始化失败'));
+    }
+    return () => {
+      void player;
+      playbackController.leave();
+    };
+  }, [playbackController]);
+
   useEffect(() => {
     const top = Number(page.live?.scrollTop) || 0;
     requestAnimationFrame(() => window.scrollTo(0, top));
@@ -155,6 +212,110 @@ export function LiveFeature({
   return (
     <Page>
       <Header title="直播" />
+
+      {activeChannel && (
+        <>
+          {/* Image 2 Requirement: Player Window in Live Tab */}
+          <SangtianPlayerWindow
+            videoRef={videoRef}
+            controller={playbackController}
+            videoContainerRef={playerWindowBodyRef}
+            status={playbackStatus}
+            candidate={activeStream ? {
+              label: activeStream.label || '线路 1',
+              url: activeStream.url || activeStream.mediaUrl,
+              protocol: activeStream.protocol || 'HLS/M3U8',
+            } : { label: '请选择频道', protocol: 'LIVE' }}
+            candidates={livePlaybackRequest?.candidates ?? []}
+            error={playbackError}
+            resolvedInput={resolvedPlaybackInput}
+            isLive
+            terminalTag={activeChannel ? 'LIVE · ' + activeChannel.name : 'LIVE · 等待频道'}
+            channels={allChannels}
+            activeChannel={activeChannel}
+            activeStreamIndex={activeStreamIndex}
+            onSelectChannel={c => setSelectedChannelId(c.channelId)}
+            onSwitchStreamIndex={idx => setActiveStreamIndex(idx)}
+            decoderEngine={decoderEngine}
+            onChangeDecoderEngine={setDecoderEngine}
+          >
+            <video
+              ref={videoRef}
+              playsInline
+              preload="metadata"
+              poster={activeChannel.logo}
+              className="sangtian-video-element"
+            />
+          </SangtianPlayerWindow>
+
+          {/* Image 3 Requirement: Live Current Card */}
+          <div className="live-current-bar" style={{ display: 'flex', flexDirection: 'column', background: '#fcf9f2', border: '1px solid #e2d5bd', borderRadius: '20px', padding: '18px 20px', margin: '12px 0 16px', boxShadow: '0 4px 16px rgba(45, 34, 22, 0.04)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px', width: '100%', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1 }}>
+                <span className="live-pill" style={{ flexShrink: 0, background: '#dcedd9', color: '#286b20', border: '1px solid #b2d8aa', padding: '4px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  ● 正在直播
+                </span>
+                <b style={{ fontSize: '21px', fontWeight: 900, color: '#1a1612', marginLeft: '10px', letterSpacing: '-0.3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeChannel.name}</b>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite('channel', activeChannel.channelId)}
+                  style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#fcf9f2', border: '1px solid #dcd0bc', display: 'grid', placeItems: 'center', cursor: 'pointer', outline: 'none' }}
+                  title="收藏频道"
+                >
+                  <Heart size={20} fill={favorites.some(i => i.targetType === 'channel' && i.targetId === activeChannel.channelId) ? '#e11d48' : 'none'} color={favorites.some(i => i.targetType === 'channel' && i.targetId === activeChannel.channelId) ? '#e11d48' : '#1a1612'} strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPlay?.(activeChannel)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '12px', background: '#8b2319', color: '#ffffff', border: 'none', fontWeight: 700, fontSize: '15px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(139, 35, 25, 0.28)', outline: 'none', whiteSpace: 'nowrap' }}
+                >
+                  <Play size={16} fill="#ffffff" color="#ffffff" />
+                  <span>沉浸播放</span>
+                </button>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#5c4d3c', marginTop: '6px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+              <span>📺 {activeChannel.category || '央视频道'}</span>
+              <span>· {activeStream?.label || `线路 ${activeStreamIndex + 1}`}</span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 600, color: '#5c4d3c', width: '100%' }}>
+              <span style={{ flexShrink: 0 }}>线路:</span>
+              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', scrollbarWidth: 'none', width: '100%' }}>
+                {(activeChannel.streams?.length ? activeChannel.streams : [{ label: '线路 1' }, { label: '线路 2' }, { label: '线路 3' }]).map((st, idx) => {
+                  const isCurrent = activeStreamIndex === idx;
+                  return (
+                    <button
+                      key={st.streamId || idx}
+                      type="button"
+                      onClick={() => setActiveStreamIndex(idx)}
+                      style={{
+                        padding: '5px 14px',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        background: isCurrent ? '#d5a55a' : '#eee3cf',
+                        border: isCurrent ? '1px solid #b8860b' : '1px solid #dacba8',
+                        color: isCurrent ? '#ffffff' : '#2a2018',
+                        cursor: 'pointer',
+                        outline: 'none',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0
+                      }}
+                    >
+                      {st.label || `线路 ${idx + 1}`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {hasEnabledLiveSource && (
         <>
@@ -207,7 +368,9 @@ export function LiveFeature({
                   <div
                     key={channel.channelId}
                     className="live-channel-card"
-                    onClick={() => (onPlay ? onPlay(channel) : onChannel?.(channel))}
+                    onClick={() => {
+                      setSelectedChannelId(channel.channelId);
+                    }}
                   >
                     <div className="card-logo">
                       <SmartImage src={channel.logo} alt={channel.name} fallback={<Radio size={20} />} />
@@ -230,7 +393,7 @@ export function LiveFeature({
                     </button>
                     <button
                       type="button"
-                      aria-label={`播放 ${channel.name}`}
+                      aria-label={`沉浸播放 ${channel.name}`}
                       className="card-play-btn secondary icon-button"
                       onClick={e => {
                         e.stopPropagation();

@@ -404,6 +404,15 @@ function PlaybackView({
         onOpenSourceModal={() => setSourceModalOpen(true)}
       />
 
+      {/* 4.5 Immersive Channel & Group Switcher Bar */}
+      {isLive && channels.length > 0 && (
+        <ImmersiveChannelBar
+          channels={channels}
+          currentChannelId={request?.channelId}
+          onSelectChannel={ch => onPlay?.(ch)}
+        />
+      )}
+
       {/* 5. Rich Console Console Card */}
       <SangtianConsoleCard
         title={isLive ? (request?.metadata?.title ?? channel?.name ?? 'LIVE 直播') : (request?.metadata?.title || movie?.title || '精彩视频')}
@@ -531,6 +540,82 @@ function PlaybackView({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ImmersiveChannelBar({ channels = [], currentChannelId, onSelectChannel }) {
+  const [activeCat, setActiveCat] = useState('全部');
+
+  const categories = useMemo(() => {
+    const set = new Set();
+    channels.forEach(c => { if (c.category) set.add(c.category); });
+    return ['全部', ...Array.from(set)];
+  }, [channels]);
+
+  const filteredChannels = useMemo(() => {
+    if (activeCat === '全部') return channels;
+    return channels.filter(c => (c.category || '未分类') === activeCat);
+  }, [channels, activeCat]);
+
+  return (
+    <div className="sangtian-immersive-channel-bar" style={{ margin: '10px 0', padding: '10px 12px', background: 'var(--card-bg, #fcf9f2)', border: '1px solid var(--border, #dbcbb1)', borderRadius: '14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text, #261f18)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <Radio size={14} color="#992c22" /> 所有频道分组选台
+        </span>
+        <span style={{ fontSize: '11px', color: '#7b6a57' }}>左右滑动选组选台</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '6px', scrollbarWidth: 'none' }}>
+        {categories.map(cat => (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => setActiveCat(cat)}
+            style={{
+              flex: '0 0 auto',
+              padding: '3px 10px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: 600,
+              background: activeCat === cat ? '#992c22' : 'rgba(0,0,0,0.06)',
+              color: activeCat === cat ? '#ffffff' : 'inherit',
+              border: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingTop: '6px', scrollbarWidth: 'none' }}>
+        {filteredChannels.map(ch => {
+          const isSelected = ch.channelId === currentChannelId;
+          return (
+            <button
+              key={ch.channelId}
+              type="button"
+              onClick={() => onSelectChannel?.(ch)}
+              style={{
+                flex: '0 0 auto',
+                padding: '5px 11px',
+                borderRadius: '8px',
+                fontSize: '12px',
+                fontWeight: isSelected ? 700 : 500,
+                background: isSelected ? '#2a2018' : 'rgba(0,0,0,0.03)',
+                color: isSelected ? '#ffffff' : 'inherit',
+                border: isSelected ? '1px solid #2a2018' : '1px solid rgba(0,0,0,0.08)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {isSelected ? `● ${ch.name}` : ch.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
