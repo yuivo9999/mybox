@@ -459,10 +459,10 @@ function PlaybackView({
               <b style={{
                 fontSize: '22px',
                 letterSpacing: '0.2em',
-                textShadow: '3px 3px 6px rgba(0, 0, 0, 0.45)',
+                textShadow: 'none',
                 fontWeight: 'bold',
                 marginBottom: '6px',
-                color: 'var(--color-text-primary, #ecd9ba)'
+                color: '#e60012'
               }}>
                 {movie?.title || request?.metadata?.title || '正在播放'}
               </b>

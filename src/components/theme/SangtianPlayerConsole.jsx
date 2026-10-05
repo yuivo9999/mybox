@@ -33,6 +33,7 @@ export function SangtianPlayerWindow({
   const [networkDownlink, setNetworkDownlink] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showFullscreenBar, setShowFullscreenBar] = useState(true);
+  const [showEmbeddedNav, setShowEmbeddedNav] = useState(true);
   const [showLeftSidebar, setShowLeftSidebar] = useState(false);
   const [showRightSidebar, setShowRightSidebar] = useState(false);
   const [showEpisodeSidebar, setShowEpisodeSidebar] = useState(false);
@@ -45,6 +46,7 @@ export function SangtianPlayerWindow({
 
   const lastBufferRef = useRef({ time: 0, buffered: 0 });
   const controlsTimeoutRef = useRef(null);
+  const embeddedTimeoutRef = useRef(null);
 
   const streamUrl = resolvedInput?.url || candidate?.mediaUrl || candidate?.url || candidate?.metadata?.url || '';
   const aspectOptions = [
@@ -146,7 +148,7 @@ export function SangtianPlayerWindow({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [isWebFullscreen]);
 
-  // Auto-hide fullscreen controls after 4 seconds of inactivity
+  // Auto-hide fullscreen controls after 3 seconds of inactivity
   const fullscreen = isSystemFullscreen || isImmersive || isWebFullscreen;
 
   const resetControlsTimeout = () => {
@@ -155,7 +157,7 @@ export function SangtianPlayerWindow({
     if (fullscreen && isPlaying && !isLocked && !showLeftSidebar && !showRightSidebar && !showEpisodeSidebar) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowFullscreenBar(false);
-      }, 4000);
+      }, 3000);
     }
   };
 
@@ -172,6 +174,41 @@ export function SangtianPlayerWindow({
           setShowLeftSidebar(false);
           setShowRightSidebar(false);
           setShowEpisodeSidebar(false);
+        } else if (isPlaying) {
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+          controlsTimeoutRef.current = setTimeout(() => {
+            setShowFullscreenBar(false);
+          }, 3000);
+        }
+        return nextState;
+      });
+    }
+  };
+
+  const resetEmbeddedControlsTimeout = () => {
+    if (embeddedTimeoutRef.current) clearTimeout(embeddedTimeoutRef.current);
+    setShowEmbeddedNav(true);
+    if (!fullscreen && isPlaying) {
+      embeddedTimeoutRef.current = setTimeout(() => {
+        setShowEmbeddedNav(false);
+      }, 3000);
+    }
+  };
+
+  const handleEmbeddedBlankClick = (e) => {
+    if (fullscreen) return;
+    const isInteractive = Boolean(
+      e.target.closest('button, input, select, textarea, a, .setting-btn, .sidebar-channel-item, .sidebar-chip, .close-sidebar-btn, .sangtian-ep-btn')
+    );
+    if (!isInteractive) {
+      e.stopPropagation();
+      setShowEmbeddedNav(prev => {
+        const nextState = !prev;
+        if (nextState && isPlaying) {
+          if (embeddedTimeoutRef.current) clearTimeout(embeddedTimeoutRef.current);
+          embeddedTimeoutRef.current = setTimeout(() => {
+            setShowEmbeddedNav(false);
+          }, 3000);
         }
         return nextState;
       });
@@ -181,7 +218,7 @@ export function SangtianPlayerWindow({
   useEffect(() => {
     if (fullscreen && isPlaying && !isLocked) {
       resetControlsTimeout();
-    } else {
+    } else if (fullscreen) {
       setShowFullscreenBar(true);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     }
@@ -189,6 +226,18 @@ export function SangtianPlayerWindow({
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, [fullscreen, isPlaying, isLocked, showLeftSidebar, showRightSidebar, showEpisodeSidebar]);
+
+  useEffect(() => {
+    if (!fullscreen && isPlaying) {
+      resetEmbeddedControlsTimeout();
+    } else if (!fullscreen) {
+      setShowEmbeddedNav(true);
+      if (embeddedTimeoutRef.current) clearTimeout(embeddedTimeoutRef.current);
+    }
+    return () => {
+      if (embeddedTimeoutRef.current) clearTimeout(embeddedTimeoutRef.current);
+    };
+  }, [fullscreen, isPlaying]);
 
   const [selectedSidebarCat, setSelectedSidebarCat] = useState('全部');
 
@@ -358,8 +407,8 @@ export function SangtianPlayerWindow({
   return (
     <div
       className={`sangtian-window ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
-      onMouseMove={fullscreen ? resetControlsTimeout : undefined}
-      onTouchStart={fullscreen ? resetControlsTimeout : undefined}
+      onMouseMove={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
+      onTouchStart={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
     >
       {!fullscreen && (
         <div className="sangtian-window-bar">
@@ -494,7 +543,10 @@ export function SangtianPlayerWindow({
 
             {/* Embedded Navigation Bar inside Video Window (Non-fullscreen) */}
             {!fullscreen && !showTerminal && status !== 'error' && (
-              <div className={`sangtian-embedded-player-nav ${isLandscape ? 'mode-landscape' : 'mode-portrait'}`}>
+              <div
+                className={`sangtian-embedded-player-nav ${isLandscape ? 'mode-landscape' : 'mode-portrait'} ${showEmbeddedNav ? 'visible' : ''}`}
+                onClick={handleEmbeddedBlankClick}
+              >
                 {/* Embedded Top Control Bar */}
                 <div className="embedded-nav-top">
                   <div className="embedded-nav-title-group">
@@ -1160,7 +1212,7 @@ export function SangtianConsoleCard({
               <span className="section-eyebrow">
                 {isLive ? (filteredLiveChannels.length > 0 ? "LIVE CHANNELS · 频道切换" : "LIVE DIRECT · 当前直播") : "EPISODES · 选集列表"}
               </span>
-              <h4 className="movie-title-chinese-red">{title}</h4>
+              <h4>{title}</h4>
             </div>
 
             {isLive ? (
@@ -1255,7 +1307,7 @@ export function SangtianConsoleCard({
           <div className="console-info-section">
             <div className="console-section-header">
               <span className="section-eyebrow">{isLive ? "LIVE · 当前直播" : "OVERVIEW · 详细资料"}</span>
-              <h4 className="movie-title-chinese-red">{title}</h4>
+              <h4>{title}</h4>
             </div>
             {subtitle && <p className="console-subtitle">{subtitle}</p>}
             <p className="console-description">{description || '暂无剧情简介。'}</p>
