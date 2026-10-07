@@ -60,21 +60,27 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
 
       if (isHls && Hls.isSupported()) {
         try {
-          // Live 统一最多缓存 60 秒 ahead buffer；起播仍采用渐进式 15 -> 30 -> 45 -> 60 秒。
-          // VOD 继续使用原来的默认缓冲策略。
+          // Live: 15 -> 30 -> 45 -> 60s.
+          // VOD: 30 -> 60 -> 120 -> 200s.
+          // We only change HLS buffer depth; the manifest remains one ordered
+          // media timeline, so fragments are still selected/append in sequence.
           const liveBufferMaxSeconds = Math.max(
             15,
             Math.min(60, Number(next.playerHint?.liveBufferMaxSeconds ?? 60) || 60)
           );
-          let fragLoadedCount = 0;
+          const vodBufferMaxSeconds = Math.max(
+            30,
+            Math.min(200, Number(next.playerHint?.vodBufferMaxSeconds ?? 200) || 200)
+          );
+          let fragBufferedCount = 0;
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: false,
             backBufferLength: 60,
             maxBufferLength: isLiveStream ? Math.min(15, liveBufferMaxSeconds) : 30,
-            maxMaxBufferLength: isLiveStream ? liveBufferMaxSeconds : 120,
-            maxBufferSize: 80 * 1000 * 1000,
-            maxBufferHole: 0.8,
+            maxMaxBufferLength: isLiveStream ? liveBufferMaxSeconds : vodBufferMaxSeconds,
+            maxBufferSize: isLiveStream ? 80 * 1000 * 1000 : 256 * 1000 * 1000,
+            maxBufferHole: isLiveStream ? 0.8 : 0.15,
             highBufferWatchdogPeriod: 2,
             nudgeOffset: 0.2,
             nudgeMaxRetry: 5,
@@ -97,15 +103,26 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
               video.play().catch(() => {});
             }
           });
-          hls.on(Hls.Events.FRAG_LOADED, () => {
-            fragLoadedCount += 1;
-            // 逐步提前缓存至 60 秒直播内容提前量：15s -> 30s -> 45s -> 60s
-            if (fragLoadedCount === 1) {
-              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 30);
-            } else if (fragLoadedCount === 2) {
-              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
-            } else if (fragLoadedCount >= 3) {
-              hls.config.maxBufferLength = liveBufferMaxSeconds;
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            fragBufferedCount += 1;
+            if (isLiveStream) {
+              // 逐步缓存至 60 秒：15 -> 30 -> 45 -> 60。
+              if (fragBufferedCount === 1) {
+                hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 30);
+              } else if (fragBufferedCount === 2) {
+                hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
+              } else if (fragBufferedCount >= 3) {
+                hls.config.maxBufferLength = liveBufferMaxSeconds;
+              }
+            } else {
+              // VOD 逐步缓存至 200 秒：30 -> 60 -> 120 -> 200。
+              if (fragBufferedCount === 1) {
+                hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 60);
+              } else if (fragBufferedCount === 2) {
+                hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 120);
+              } else if (fragBufferedCount >= 3) {
+                hls.config.maxBufferLength = vodBufferMaxSeconds;
+              }
             }
           });
           hls.on(Hls.Events.ERROR, (event, data) => {
