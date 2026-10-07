@@ -49,7 +49,8 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
        video.removeAttribute('src');
        try { video.load(); } catch (e) {}
 
-      const isHls = Boolean(next.url && (next.url.includes('.m3u8') || next.protocol === 'hls' || next.format === 'hls'));
+       const urlLower = String(next.url || '').toLowerCase();
+       const isHls = Boolean(next.url && (urlLower.includes('.m3u8') || urlLower.includes('/pltv/') || urlLower.includes('/tvod/') || urlLower.includes('.ctv') || urlLower.includes('playlist') || next.protocol === 'hls' || next.format === 'hls'));
       const isLiveStream = Boolean(
         next.kind === 'live' ||
         next.protocol === 'LIVE' ||

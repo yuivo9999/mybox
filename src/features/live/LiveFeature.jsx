@@ -82,6 +82,64 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [decoderEngine, setDecoderEngine] = useState(globalLiveCache.decoderEngine || 'exo');
   const [isImmersive, setIsImmersive] = useState(globalLiveCache.isImmersive || false);
 
+  const [customUrl, setCustomUrl] = useState('');
+  const [customCandidate, setCustomCandidate] = useState(null);
+
+  const handleLoadCustomUrl = () => {
+    let raw = String(customUrl || '').trim();
+    if (!raw) return;
+
+    // 1. 如果用户粘贴了 tv1.txt 行格式（如 "CCTV-1,http://..."），提取后面的播放地址
+    const commaIdx = raw.indexOf(',');
+    const ChineseCommaIdx = raw.indexOf('，');
+    const splitIdx = commaIdx >= 0 ? commaIdx : ChineseCommaIdx;
+    if (splitIdx >= 0) {
+      const part2 = raw.substring(splitIdx + 1).trim();
+      if (/^https?:\/\//i.test(part2) || /^rtmp:\/\//i.test(part2) || /^rtsp:\/\//i.test(part2)) {
+        raw = part2;
+      }
+    }
+
+    // 2. 如果包含多个备用地址（以 # 分离，如 "http://url1#http://url2"），提取第一个有效的播放地址
+    if (raw.includes('#')) {
+      const parts = raw.split('#');
+      const firstValid = parts.find(p => /^https?:\/\//i.test(p.trim()) || /^rtmp:\/\//i.test(p.trim()) || /^rtsp:\/\//i.test(p.trim()));
+      if (firstValid) {
+        raw = firstValid.trim();
+      }
+    }
+
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    setSelectedChannelId('');
+    setActiveStreamIndex(0);
+
+    const isHls = /\.m3u8(?:[?#]|$)/i.test(trimmed) || trimmed.toLowerCase().includes('/pltv/') || trimmed.toLowerCase().includes('/tvod/');
+
+    const cand = {
+      candidateId: 'custom-live-stream-' + Date.now(),
+      mediaUrl: trimmed,
+      url: trimmed,
+      label: '自定义直播',
+      protocol: isHls ? 'HLS/M3U8' : 'HTTP/MP4',
+      sourceId: 'custom',
+      kind: 'live',
+    };
+
+    setCustomCandidate(cand);
+    setPlaybackCandidate(cand);
+    setResolvedPlaybackInput(null);
+    setPlaybackError('');
+    setPlaybackStatus('loading');
+
+    if (playbackControllerRef.current) {
+      playbackControllerRef.current.resolveAndLoad(cand).catch(e => {
+        setPlaybackError(e?.message || '播放自定义地址失败');
+      });
+    }
+  };
+
   const enabledTv1Sources = useMemo(
     () => sources.filter(source => source.sourceType === 'live' && source.liveMode === 'tv1' && source.enabled !== false),
     [sources],
@@ -280,6 +338,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   };
 
   const selectChannel = (channel, targetStreamIndex = 0) => {
+    setCustomCandidate(null);
     setSelectedChannelId(channel.channelId);
     setActiveStreamIndex(targetStreamIndex);
     globalLiveCache.activeStreamIndex = targetStreamIndex;
@@ -465,7 +524,45 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
 
   return (
     <Page>
-      <Header title="直播" />
+      <Header title="直播">
+        <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: '6px', height: '32px', maxWidth: '300px' }}>
+          <input
+            type="text"
+            placeholder="输入自定义直播地址 (http/rtmp/m3u8)..."
+            value={customUrl}
+            onChange={e => setCustomUrl(e.target.value)}
+            style={{
+              flex: 1,
+              height: '100%',
+              border: '1px solid #303643',
+              background: '#11141b',
+              borderRadius: '8px',
+              padding: '0 10px',
+              color: '#fff',
+              fontSize: '12px',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleLoadCustomUrl}
+            style={{
+              height: '100%',
+              padding: '0 12px',
+              borderRadius: '8px',
+              background: '#f2f4f8',
+              color: '#101217',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              display: 'grid',
+              placeItems: 'center',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            加载
+          </button>
+        </div>
+      </Header>
 
       <SangtianPlayerWindow
         videoRef={videoRef}
@@ -478,12 +575,18 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           protocol: playbackCandidate?.protocol || activeStream.protocol || 'HLS/M3U8',
           sourceId: playbackCandidate?.sourceId || activeStream.sourceId,
           candidateId: playbackCandidate?.candidateId,
-        } : { label: '请选择频道', protocol: 'LIVE' }}
-        candidates={livePlaybackRequest?.candidates ?? []}
+        } : (customCandidate ? {
+          label: customCandidate.label,
+          url: customCandidate.url,
+          protocol: customCandidate.protocol,
+          sourceId: customCandidate.sourceId,
+          candidateId: customCandidate.candidateId,
+        } : { label: '请选择频道', protocol: 'LIVE' })}
+        candidates={livePlaybackRequest?.candidates ?? (customCandidate ? [customCandidate] : [])}
         error={playbackError}
         resolvedInput={resolvedPlaybackInput}
         isLive
-        terminalTag={activeChannel ? 'LIVE · ' + activeChannel.name : 'LIVE · 等待频道'}
+        terminalTag={activeChannel ? 'LIVE · ' + activeChannel.name : (customCandidate ? 'LIVE · 自定义地址' : 'LIVE · 等待频道')}
         channels={allChannels}
         activeChannel={activeChannel}
         activeStreamIndex={activeStreamIndex}
@@ -867,7 +970,17 @@ export function LiveChannelPanel({
   );
 }
 const Page = ({ children }) => <main className="page">{children}</main>;
-const Header = ({ title }) => <header><div><span className="eyebrow">TVBOX REACT · LIVE</span><h2>{title}</h2></div></header>;
+const Header = ({ title, children }) => (
+  <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '22px', gap: '12px' }}>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <span className="eyebrow" style={{ display: 'block' }}>TVBOX REACT · LIVE</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '3px' }}>
+        <h2 style={{ margin: 0, fontSize: '28px', whiteSpace: 'nowrap' }}>{title}</h2>
+        {children}
+      </div>
+    </div>
+  </header>
+);
 const SectionTitle = ({ title }) => <div className="section-title"><h3>{title}</h3></div>;
 const InfoCard = ({ title, text }) => <div className="info-card"><Radio size={18} /><div><b>{title}</b><span>{text}</span></div></div>;
 export const Empty = ({ text }) => <div className="empty"><Radio size={22} /><span>{text}</span></div>;
