@@ -7,10 +7,10 @@ import { SangtianTopBar } from '../components/theme/SangtianTopBar.jsx';
 import { SangtianDrawer } from '../components/theme/SangtianDrawer.jsx';
 import { OtherSourceSearchDialog } from '../features/movie/OtherSourceSearchDialog.jsx';
 import {
-  SangtianPlayerWindow,
   SangtianFloatingBar,
   SangtianConsoleCard,
 } from '../components/theme/SangtianPlayerConsole.jsx';
+import { PlaybackPagePlayerBlock } from '../components/player/PlaybackPagePlayerBlock.jsx';
 
 function PlaybackView({
   request,
@@ -361,7 +361,7 @@ function PlaybackView({
       />
 
       {/* 1. Fully Featured Video Playback Window */}
-      <SangtianPlayerWindow
+      <PlaybackPagePlayerBlock
         videoRef={videoRef}
         controller={controller}
         videoContainerRef={playerWindowBodyRef}
@@ -420,7 +420,7 @@ function PlaybackView({
           poster={request?.metadata?.poster || movie?.poster}
           className="sangtian-video-element"
         />
-      </SangtianPlayerWindow>
+      </PlaybackPagePlayerBlock>
 
       {/* 4. Floating Control Bar (VOD Only) */}
       {!isLive && (
