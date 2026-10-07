@@ -188,9 +188,9 @@ export async function syncMovieSources(sourceConfigs = [], selectedSourceId = nu
         activeCategory,
         stale: result.stale,
         fromCache: result.fromCache,
-        capabilities: adapter.getCapabilities(),
-        definition: adapter.getDefinition(),
-        adapterStatus: adapter.getStatus(),
+        capabilities: typeof adapter.getCapabilities === 'function' ? adapter.getCapabilities() : [],
+        definition: typeof adapter.getDefinition === 'function' ? adapter.getDefinition() : (adapter.definition ?? null),
+        adapterStatus: typeof adapter.getStatus === 'function' ? adapter.getStatus() : null,
       };
     } catch (reason) {
       return {

@@ -402,20 +402,14 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
     </>
   ) : currentMovies.length > 0 ? (() => {
       const categoryTotal = currentMovies.length;
-      const isPaginated = categoryTotal >= 40;
-      const PAGE_SIZE = 40;
-      const totalPages = isPaginated ? Math.ceil(categoryTotal / PAGE_SIZE) : 1;
-      const validPage = Math.min(Math.max(1, categoryPage), totalPages);
-      const displayMovies = isPaginated
-        ? currentMovies.slice((validPage - 1) * PAGE_SIZE, validPage * PAGE_SIZE)
-        : currentMovies;
+      const displayMovies = currentMovies; // 首页“持续加载下一批”的功能是保留已经加载的内容，保留并显示全量内容
 
       return (
         <>
           <div className="section-title" style={{ marginTop: 8, marginBottom: 8 }}>
             <h3>{active?.name}</h3>
             <span style={{ fontSize: 12, color: '#8f9aaa' }}>
-              {isPaginated ? `第 ${validPage} / ${totalPages} 页 · 本类共 ${categoryTotal} 部` : `${categoryTotal} 部内容`}
+              {`已加载共 ${categoryTotal} 部影视内容`}
             </span>
           </div>
 
@@ -425,63 +419,25 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
             ))}
           </div>
 
-          {/* 40 个之后开启分页控件 */}
-          {isPaginated && (
-            <div className="category-pagination-bar">
-              <button
-                type="button"
-                className="category-pagination-btn"
-                disabled={validPage <= 1}
-                onClick={() => {
-                  setCategoryPage(p => Math.max(1, p - 1));
-                  if (typeof window !== 'undefined') window.scrollTo({ top: 380, behavior: 'smooth' });
-                }}
-              >
-                上一页
-              </button>
-              <span className="category-pagination-info">
-                第 {validPage} / {totalPages} 页 (共 {categoryTotal} 部不重复内容)
-              </span>
-              <button
-                type="button"
-                className="category-pagination-btn"
-                disabled={validPage >= totalPages}
-                onClick={() => {
-                  setCategoryPage(p => Math.min(totalPages, p + 1));
-                  if (typeof window !== 'undefined') window.scrollTo({ top: 380, behavior: 'smooth' });
-                }}
-              >
-                下一页
-              </button>
-            </div>
-          )}
-
-          {/* 持续加载按钮：未满40个时加载至40个；40个之后用户仍可一直点击，源源不断获取同一类别不重复内容 */}
-          <div className="continuous-load-section" style={{ marginTop: isPaginated ? 8 : 16 }}>
+          {/* 持续加载按钮：保留已经加载的内容，后续抓取添加进来新的，加载进来的都不能动 */}
+          <div className="continuous-load-section" style={{ marginTop: 16 }}>
             <button
               type="button"
-              className={'continuous-load-btn' + (isPaginated ? ' secondary' : '')}
+              className="continuous-load-btn"
               disabled={movieCategoryLoading}
               onClick={() => {
                 onLoadMoreCategory?.(active, Math.floor(categoryTotal / 12) + 2);
-                if (isPaginated && validPage === totalPages) {
-                  setCategoryPage(totalPages + 1);
-                }
               }}
             >
               <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
               <span>
                 {movieCategoryLoading
                   ? '正在持续抓取新内容…'
-                  : isPaginated
-                  ? `持续加载下一批“${active.name}” (源源不断精彩好片)`
-                  : `持续加载“${active.name}”更多内容 (已加载 ${categoryTotal} / 40 部)`}
+                  : `持续加载“${active.name}”更多内容 (累计已载入 ${categoryTotal} 部)`}
               </span>
             </button>
             <p className="continuous-load-tip">
-              {isPaginated
-                ? `可一直点击持续加载，源源不断获取同一类别全新不重复内容 (当前已累计 ${categoryTotal} 部)`
-                : `点击持续加载同类别全新内容，严格去重不重复，满 40 部后开启分页`}
+              点击持续加载同类别全新内容，严格去重，加载进来的内容均会保留在当前视图，不会发生位移或隐藏
             </p>
           </div>
 
@@ -656,7 +612,7 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
  const pageSize = Math.max(1, state.pageSize || 40);
  const currentPage = Math.max(1, state.page || 1);
  const totalPages = Math.max(1, Math.ceil(filteredMovies.length / pageSize));
- const pagedMovies = filteredMovies.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+ const pagedMovies = filteredMovies; // 持续加载下一批的功能是保留已经加载的内容，保留全量内容，不分截断或隐藏先前载入的内容
 
  const filters=home.filters??{};
  const values=(key)=>['全部',...(filters[key]??[])];
@@ -731,40 +687,32 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
   {/* 海报墙网格 - 一目了然展示所有抓取内容与角标 */}
   {pagedMovies.length > 0 ? (
     <>
-      <div className="movie-grid">
-        {pagedMovies.map((movie, index) => (
-          <MovieCard key={movie.contentId ? `${movie.contentId}_paged_${index}` : `paged_${index}`} movie={movie} onClick={onMovie} />
-        ))}
-      </div>
-      <div className="pagination">
-        <button disabled={currentPage <= 1} onClick={() => handlePageChange(currentPage - 1)}>上一页</button>
-        <span style={{ fontSize: 13, color: '#8f9aaa' }}>第 {currentPage} / {totalPages} 页 (共 {filteredMovies.length} 部)</span>
-        <button disabled={currentPage >= totalPages} onClick={() => handlePageChange(currentPage + 1)}>下一页</button>
-      </div>
+   <div className="movie-grid">
+     {pagedMovies.map((movie, index) => (
+       <MovieCard key={movie.contentId ? `${movie.contentId}_paged_${index}` : `paged_${index}`} movie={movie} onClick={onMovie} />
+     ))}
+   </div>
 
-      <div className="continuous-load-section" style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          className="continuous-load-btn secondary"
-          disabled={movieCategoryLoading}
-          onClick={() => {
-            onLoadMoreCategory?.(activeCategory, Math.floor(filteredMovies.length / 12) + 2);
-            if (currentPage === totalPages) {
-              handlePageChange(totalPages + 1);
-            }
-          }}
-        >
-          <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
-          <span>
-            {movieCategoryLoading
-              ? '正在抓取新内容…'
-              : `持续加载下一批“${activeCategory.name}” (源源不断精彩好片)`}
-          </span>
-        </button>
-        <p className="continuous-load-tip">
-          可一直点击持续加载，源源不断获取同一类别全新不重复内容 (已累计 {filteredMovies.length} 部)
-        </p>
-      </div>
+   <div className="continuous-load-section" style={{ marginTop: 24 }}>
+     <button
+       type="button"
+       className="continuous-load-btn secondary"
+       disabled={movieCategoryLoading}
+       onClick={() => {
+         onLoadMoreCategory?.(activeCategory, Math.floor(filteredMovies.length / 12) + 2);
+       }}
+     >
+       <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
+       <span>
+         {movieCategoryLoading
+           ? '正在抓取新内容…'
+           : `持续加载下一批“${activeCategory.name}” (源源不断精彩好片)`}
+       </span>
+     </button>
+     <p className="continuous-load-tip">
+       可一直点击持续加载，源源不断获取同一类别全新不重复内容 (当前已累计 {filteredMovies.length} 部)
+     </p>
+   </div>
     </>
   ) : (
     <EmptyState text={movies.length ? '当前分类或筛选条件下暂无内容' : '暂无影视内容，请检查源连接'} />

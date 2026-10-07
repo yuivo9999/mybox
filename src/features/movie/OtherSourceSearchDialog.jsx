@@ -33,7 +33,7 @@ export function OtherSourceSearchDialog({ title, currentSourceId, sources = [], 
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    const otherSources = sources.filter(source => source?.sourceType === 'movie' && source?.enabled !== false && source.sourceId !== currentSourceId);
+    const otherSources = sources.filter(source => source?.sourceType === 'movie' && source?.enabled !== false);
     setState({ results: [], failed: [], loading: true, completed: 0, total: otherSources.length, error: '' });
     if (!otherSources.length) {
       setState({ results: [], failed: [], loading: false, completed: 0, total: 0, error: '暂无其他已启用影视源可搜索' });

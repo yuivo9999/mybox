@@ -37,7 +37,29 @@ export function MoviePlaybackPage({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState('exo');
+  const [decoderEngine, setDecoderEngine] = useState(settings?.playback?.moviePlayer ?? 'exo');
+
+  const handleSwitchDecoderEngine = async (engineId) => {
+    setDecoderEngine(engineId);
+
+    // 1. 保存设置到持久化 settings 中
+    const currentPlayback = settings?.playback || {};
+    saveSettings({
+      ...settings,
+      playback: {
+        ...currentPlayback,
+        moviePlayer: engineId,
+      }
+    });
+
+    // 2. 立即重新以新的解码内核载入并播放
+    const retry = candidate || controller.start();
+    if (retry) {
+      setResolvedInput(null);
+      setError('');
+      controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
+    }
+  };
   const [playbackTime, setPlaybackTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
 
@@ -344,6 +366,10 @@ export function MoviePlaybackPage({
 
   const candidateLabel = candidate?.metadata?.label || candidate?.label || (candidate?.index != null ? `线路 ${candidate.index + 1}` : null) || '线路 1';
 
+  const currentSourceItem = sources.find(s => s.sourceId === source);
+  const sourceName = currentSourceItem?.name || candidate?.metadata?.sourceName || '当前源';
+  const actors = movie?.actors || movie?.actorsList || request?.metadata?.movie?.actors || [];
+
   return (
     <div className="player-page theme-sangtian-layout">
       {/* 1. Top Bar: Left (Hamburger), Center (Title), Right (More Vertical) */}
@@ -410,7 +436,7 @@ export function MoviePlaybackPage({
         onSelectCandidate={switchCandidate}
         onOpenSourceModal={() => setSourceModalOpen(true)}
         decoderEngine={decoderEngine}
-        onChangeDecoderEngine={setDecoderEngine}
+        onChangeDecoderEngine={handleSwitchDecoderEngine}
         onTimeMetricsChange={(cur, dur) => {
           setPlaybackTime(cur);
           if (dur > 0 && Number.isFinite(dur)) {
@@ -440,7 +466,7 @@ export function MoviePlaybackPage({
       <SangtianConsoleCard
         title={request?.metadata?.title || movie?.title || '精彩视频'}
         subtitle={`${movie?.year || '2026'} · ${movie?.category || '高清影音'} · 第 ${episodeIndex + 1} 集`}
-        description={movie?.description || '暂无内容简介。'}
+        description={movie?.description || '暂无剧情简介。'}
         episodes={episodes}
         currentEpisodeId={request?.episodeId}
         onSelectEpisode={idx => {
@@ -464,6 +490,8 @@ export function MoviePlaybackPage({
         }}
         isFav={favorites.some(item => item.targetId === request?.contentId)}
         onSearchSameName={() => setOtherSourceSearchOpen(true)}
+        sourceName={sourceName}
+        actors={actors}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {

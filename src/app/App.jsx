@@ -75,8 +75,9 @@ export function App(){
    const selectedMovieSourceId=persistent.selectedSources?.movie ?? persistent.settings?.defaultMovieSource ?? null;
    const resultMovieSourceId=result.results.find(item=>item.status==='fulfilled'&&item.sourceId)?.sourceId ?? selectedMovieSourceId ?? null;
    setContentState(state=>{
-     const movies=hasSources?deduplicateMovies(state.movies??[],incomingMovies??[]):[];
-     const categories=hasSources?[...(state.movieCategories??[]),...(result.movieCategories??[])]:[];
+     const isSourceChanged = resultMovieSourceId !== state.movieSourceId;
+     const movies=hasSources?(isSourceChanged ? incomingMovies : deduplicateMovies(state.movies??[],incomingMovies??[])):[];
+     const categories=hasSources?(isSourceChanged ? (result.movieCategories ?? []) : [...(state.movieCategories??[]),...(result.movieCategories??[])]):[];
      const seen=new Set();
      const uniqueCategories=categories.filter(item=>{const key=String(item.name||item.id||'').trim();if(seen.has(key))return false;seen.add(key);return true;});
      return {
@@ -86,7 +87,7 @@ export function App(){
        error:failed.length?failed:null,
        sourceLoading:false,
        movieCategories:hasSources?(uniqueCategories.length?uniqueCategories:state.movieCategories):[],
-       movieActiveCategory:state.movieActiveCategory??{id:'movie',name:'电影'},
+       movieActiveCategory:isSourceChanged ? (uniqueCategories[0] ?? {id:'movie',name:'电影'}) : (state.movieActiveCategory??{id:'movie',name:'电影'}),
        movieSourceId:hasSources?resultMovieSourceId:null,
        movieCategoryLoading:false
      };

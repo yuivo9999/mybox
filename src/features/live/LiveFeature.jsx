@@ -79,7 +79,35 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [tv1Error, setTv1Error] = useState(null);
   const [resolvedStreams, setResolvedStreams] = useState(globalLiveCache.resolvedStreams || {});
   const [streamLoading, setStreamLoading] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(globalLiveCache.decoderEngine || 'exo');
+  const [decoderEngine, setDecoderEngine] = useState(
+    globalLiveCache.decoderEngine ?? persistent.settings?.playback?.livePlayer ?? 'exo'
+  );
+
+  const handleSwitchDecoderEngine = async (engineId) => {
+    setDecoderEngine(engineId);
+    globalLiveCache.decoderEngine = engineId;
+
+    // 1. 保存设置到持久化 settings 中
+    const currentPlayback = persistent.settings?.playback || {};
+    persistent.updateSettings({
+      playback: {
+        ...currentPlayback,
+        livePlayer: engineId,
+      }
+    });
+
+    // 2. 马上以新解码内核重新载入并播放当前流
+    const activeReq = livePlaybackRequestRef.current;
+    const currentStreamIdx = activeStreamIndexRef.current || 0;
+    const cand = playbackCandidate || (activeReq?.candidates?.[currentStreamIdx]);
+    if (cand && playbackControllerRef.current) {
+      setPlaybackStatus('loading');
+      setPlaybackError('');
+      playbackControllerRef.current.resolveAndLoad(cand, { forceRefresh: true }).catch(err => {
+        setPlaybackError(err?.message || '切换解码内核失败');
+      });
+    }
+  };
   const [isImmersive, setIsImmersive] = useState(globalLiveCache.isImmersive || false);
 
   const [customUrl, setCustomUrl] = useState('');
@@ -89,28 +117,34 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     let raw = String(customUrl || '').trim();
     if (!raw) return;
 
-    // 1. 如果用户粘贴了 tv1.txt 行格式（如 "CCTV-1,http://..."），提取后面的播放地址
-    const commaIdx = raw.indexOf(',');
-    const ChineseCommaIdx = raw.indexOf('，');
-    const splitIdx = commaIdx >= 0 ? commaIdx : ChineseCommaIdx;
-    if (splitIdx >= 0) {
-      const part2 = raw.substring(splitIdx + 1).trim();
-      if (/^https?:\/\//i.test(part2) || /^rtmp:\/\//i.test(part2) || /^rtsp:\/\//i.test(part2)) {
-        raw = part2;
+    // 采用高度健壮的 URL 扫描器正则：识别并提取符合 tv1.txt 或其他常用网络直播流（http/https/rtmp/rtsp）的播放地址
+    const urlMatch = raw.match(/(https?|rtmp|rtsp):\/\/[^\s"'，,]+/i);
+    let trimmed = raw;
+    if (urlMatch) {
+      let extracted = urlMatch[0];
+      // 如果包含多个备用地址（以 # 分离，如 "http://url1#http://url2"），提取第一个有效的播放地址
+      if (extracted.includes('#')) {
+        const parts = extracted.split('#');
+        const firstValid = parts.find(p => /^https?:\/\//i.test(p.trim()) || /^rtmp:\/\//i.test(p.trim()) || /^rtsp:\/\//i.test(p.trim()));
+        if (firstValid) {
+          extracted = firstValid.trim();
+        }
       }
+      trimmed = extracted;
     }
 
-    // 2. 如果包含多个备用地址（以 # 分离，如 "http://url1#http://url2"），提取第一个有效的播放地址
-    if (raw.includes('#')) {
-      const parts = raw.split('#');
-      const firstValid = parts.find(p => /^https?:\/\//i.test(p.trim()) || /^rtmp:\/\//i.test(p.trim()) || /^rtsp:\/\//i.test(p.trim()));
-      if (firstValid) {
-        raw = firstValid.trim();
-      }
-    }
-
-    const trimmed = raw.trim();
+    trimmed = trimmed.trim();
     if (!trimmed) return;
+
+    // 在确认这个地址播放、开始下达播放命令之前，立即强制停止并卸载上一个播放的缓冲和缓存，杜绝残留
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.src = "";
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      } catch (e) {}
+    }
 
     setSelectedChannelId('');
     setActiveStreamIndex(0);
@@ -153,6 +187,31 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   useEffect(() => { globalLiveCache.resolvedStreams = resolvedStreams; }, [resolvedStreams]);
   useEffect(() => { globalLiveCache.decoderEngine = decoderEngine; }, [decoderEngine]);
   useEffect(() => { globalLiveCache.isImmersive = isImmersive; }, [isImmersive]);
+
+  // 退出live直播界面，就不算了。释放最高播放权，暂停播放，清理全部运行时缓存，并重置全局 Live Cache
+  useEffect(() => {
+    return () => {
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+          videoRef.current.src = "";
+          videoRef.current.removeAttribute('src');
+          videoRef.current.load();
+        } catch (e) {}
+      }
+      if (playbackControllerRef.current) {
+        try {
+          playbackControllerRef.current.stop?.();
+          playbackControllerRef.current.leave?.();
+        } catch (e) {}
+      }
+      globalLiveCache.selectedChannelId = '';
+      globalLiveCache.activeStreamIndex = 0;
+      globalLiveCache.resolvedStreams = {};
+      globalLiveCache.isImmersive = false;
+      liveService.clearRuntimeCache();
+    };
+  }, []);
 
   useEffect(() => {
     if (page?.live?.channelId && page.live.channelId !== selectedChannelId) {
@@ -300,7 +359,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     return () => { active = false; };
   }, [activeChannel]);
 
-  const loadChannelStreams = async (channel, forceRefresh = false) => {
+  const loadChannelStreams = async (channel, forceRefresh = true) => {
     if (!channel?.deferredRef) return;
     const existing = resolvedStreams[channel.channelId];
     const resolvedAt = existing?.resolvedAt || 0;
@@ -338,6 +397,15 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   };
 
   const selectChannel = (channel, targetStreamIndex = 0) => {
+    // 立即暂停并清理上一个播放的缓冲和缓存，不给上一个播放残留缓冲的机会
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.src = "";
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      } catch (e) {}
+    }
     setCustomCandidate(null);
     setSelectedChannelId(channel.channelId);
     setActiveStreamIndex(targetStreamIndex);
@@ -346,7 +414,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setResolvedPlaybackInput(null);
     setPlaybackError('');
     if (channel.deferredRef) {
-      void loadChannelStreams(channel);
+      void loadChannelStreams(channel, true);
     }
   };
 
@@ -477,6 +545,17 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const handleSwitchStream = (index) => {
     if (index < 0 || !activeChannel?.streams?.length) return;
     const boundedIndex = Math.max(0, Math.min(index, activeChannel.streams.length - 1));
+
+    // 立即暂停并清理上一个播放的缓冲和缓存，重新连接
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+        videoRef.current.src = "";
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      } catch (e) {}
+    }
+
     setActiveStreamIndex(boundedIndex);
     globalLiveCache.activeStreamIndex = boundedIndex;
     const req = livePlaybackRequestRef.current;
@@ -487,7 +566,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       const switched = playbackControllerRef.current.switchCandidate(candidate.candidateId);
       setPlaybackCandidate(candidate);
       if (!switched) {
-        playbackControllerRef.current.resolveAndLoad(candidate).catch(e => setPlaybackError(e?.message || '线路加载失败'));
+        playbackControllerRef.current.resolveAndLoad(candidate, { forceRefresh: true }).catch(e => setPlaybackError(e?.message || '线路加载失败'));
       }
     } else if (activeChannel.streams[boundedIndex]) {
       const stream = activeChannel.streams[boundedIndex];
@@ -503,7 +582,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       };
       setPlaybackCandidate(customCandidate);
       if (playbackControllerRef.current) {
-        playbackControllerRef.current.resolveAndLoad(customCandidate).catch(e => setPlaybackError(e?.message || '线路加载失败'));
+        playbackControllerRef.current.resolveAndLoad(customCandidate, { forceRefresh: true }).catch(e => setPlaybackError(e?.message || '线路加载失败'));
       }
     }
   };
@@ -643,7 +722,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           }
         }}
         decoderEngine={decoderEngine}
-        onChangeDecoderEngine={setDecoderEngine}
+        onChangeDecoderEngine={handleSwitchDecoderEngine}
         isImmersive={isImmersive}
         onToggleImmersive={() => setIsImmersive(v => !v)}
       />

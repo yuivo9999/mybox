@@ -1189,10 +1189,19 @@ export function SangtianConsoleCard({
   onFav,
   isFav = false,
   onSearchSameName,
+  sourceName = '',
+  actors = [],
 }) {
-  const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info' | 'sources'
+  const [activeTab, setActiveTab] = useState('info'); // Default to 'info' (简介)
   const [copiedLink, setCopiedLink] = useState(false);
   const [selectedLiveCat, setSelectedLiveCat] = useState('全部');
+
+  const actorsArr = React.useMemo(() => {
+    return Array.isArray(actors) ? actors : (typeof actors === 'string' ? actors.split(/[\/,，\s]+/).map(a => a.trim()).filter(Boolean) : []);
+  }, [actors]);
+
+  const mainActors = React.useMemo(() => actorsArr.slice(0, 3), [actorsArr]);
+  const otherActors = React.useMemo(() => actorsArr.slice(3), [actorsArr]);
 
   const handleCopyStream = () => {
     if (navigator?.clipboard?.writeText && streamUrl) {
@@ -1220,9 +1229,21 @@ export function SangtianConsoleCard({
   return (
     <div className="sangtian-console-card">
       {/* Sub-header Bar: Toggles & View Switches */}
-      <div className="sangtian-console-subbar" style={!isLive ? { justifyContent: 'flex-end' } : undefined}>
+      <div className="sangtian-console-subbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        {onBack ? (
+          <button
+            className="console-tab-btn back-button"
+            onClick={onBack}
+            title="返回上一页"
+            style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: 'rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: '13px', color: '#aeb5c3' }}
+          >
+            <ChevronLeft size={16} />
+            <span>返回</span>
+          </button>
+        ) : <div style={{ marginRight: 'auto' }} />}
+
         {isLive && (
-          <div className="console-toggles">
+          <div className="console-toggles" style={{ marginLeft: '12px', marginRight: '12px' }}>
             <div className="console-live-status">
               <span className="live-pill">LIVE 直连</span>
               <span>{playerStatus === 'playing' ? '播放中' : playerStatus === 'buffering' ? '缓冲中' : playerStatus === 'reconnecting' ? '自动重连中' : playerStatus === 'error' ? '播放失败' : '连接中'}</span>
@@ -1230,17 +1251,7 @@ export function SangtianConsoleCard({
           </div>
         )}
 
-        <div className="console-tab-switches">
-          {onBack && (
-            <button
-              className="console-tab-btn back-button"
-              onClick={onBack}
-              title="返回上一页"
-            >
-              <ChevronLeft size={14} />
-              <span>返回</span>
-            </button>
-          )}
+        <div className="console-tab-switches" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {onFav && (
             <button
               className={`console-tab-btn fav-button ${isFav ? 'active-fav' : ''}`}
@@ -1287,11 +1298,62 @@ export function SangtianConsoleCard({
         {activeTab === 'episodes' && (
           <div className="console-episodes-section">
             <div className="console-section-header">
-              <span className="section-eyebrow">
-                {isLive ? (filteredLiveChannels.length > 0 ? "LIVE CHANNELS · 频道切换" : "LIVE DIRECT · 当前直播") : "EPISODES · 选集列表"}
+              <span className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span>
+                  {isLive ? (filteredLiveChannels.length > 0 ? "LIVE CHANNELS · 频道切换" : "LIVE DIRECT · 当前直播") : `EPISODES · 选集列表 (当前片源：${sourceName || '未知源'})`}
+                </span>
               </span>
               <h4>{title}</h4>
             </div>
+
+            {/* 演职人员表 (置于当前流直链上方) */}
+            {!isLive && actorsArr.length > 0 && (
+              <div className="console-cast-section-episodes" style={{ marginBottom: '14px', padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                {mainActors.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', lineHeight: '2' }}>
+                    <span style={{ fontSize: '13px', color: '#8f98aa', fontWeight: 'bold' }}>⭐ 主演：</span>
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {mainActors.map((actor, aIdx) => (
+                        <React.Fragment key={actor}>
+                          <span
+                            style={{
+                              fontSize: '18px',
+                              fontWeight: '900',
+                              letterSpacing: '0.2em',
+                              color: '#f59e0b', // Theme gold/amber
+                              textShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                            }}
+                          >
+                            {actor}
+                          </span>
+                          {aIdx < mainActors.length - 1 && (
+                            <span style={{ color: 'rgba(255, 255, 255, 0.2)', margin: '0 16px', fontSize: '14px', fontWeight: 'normal' }}>|</span>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </span>
+                  </div>
+                )}
+                {otherActors.length > 0 && (
+                  <div style={{ fontSize: '12px', color: '#aeb5c3', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
+                    <span style={{ color: '#8f98aa' }}>参演：</span>
+                    <span>{otherActors.join('  ·  ')}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 当前流直链剪贴板区域 (移至选集前面) */}
+            {!isLive && (
+              <div className="console-url-snippet" style={{ marginBottom: '14px', marginTop: '6px' }}>
+                <span className="snippet-label">当前流直链：</span>
+                <code className="snippet-code">{streamUrl || '加载中…'}</code>
+                <button className="snippet-copy-btn" onClick={handleCopyStream}>
+                  {copiedLink ? <Check size={14} color="#54c46f" /> : <Copy size={14} />}
+                  <span>{copiedLink ? '已复制' : '复制直链'}</span>
+                </button>
+              </div>
+            )}
 
             {isLive ? (
               <div className="sangtian-channel-selector-wrapper">
@@ -1422,14 +1484,43 @@ export function SangtianConsoleCard({
               )}
             </div>
 
-            <div className="console-url-snippet">
-              <span className="snippet-label">当前流直链：</span>
-              <code className="snippet-code">{streamUrl || '加载中…'}</code>
-              <button className="snippet-copy-btn" onClick={handleCopyStream}>
-                {copiedLink ? <Check size={14} color="#54c46f" /> : <Copy size={14} />}
-                <span>{copiedLink ? '已复制' : '复制直链'}</span>
-              </button>
-            </div>
+            {!isLive && actorsArr.length > 0 && (
+              <div className="console-cast-section" style={{ marginTop: '20px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ fontSize: '11px', color: '#8f98aa', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
+                  CAST & CREW · 演职人员表
+                </span>
+                {mainActors.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+                    {mainActors.map(actor => (
+                      <span
+                        key={actor}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '6px 14px',
+                          borderRadius: '8px',
+                          background: 'rgba(217, 119, 6, 0.15)',
+                          border: '1px solid rgba(217, 119, 6, 0.35)',
+                          color: '#f59e0b', // Theme gold/amber
+                          fontWeight: '800',
+                          fontSize: '15px',
+                          letterSpacing: '0.12em',
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.25)',
+                        }}
+                      >
+                        ★ 主演：{actor}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {otherActors.length > 0 && (
+                  <div style={{ fontSize: '13px', color: '#aeb5c3', lineHeight: '1.5', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
+                    <span style={{ color: '#8f98aa' }}>其他参演人员：</span>
+                    {otherActors.join('  ·  ')}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -37,7 +37,31 @@ function PlaybackView({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState('exo');
+  const [decoderEngine, setDecoderEngine] = useState(
+    (kind === 'live' ? settings?.playback?.livePlayer : settings?.playback?.moviePlayer) ?? 'exo'
+  );
+
+  const handleSwitchDecoderEngine = async (engineId) => {
+    setDecoderEngine(engineId);
+
+    // 1. 保存设置到持久化 settings 中
+    const currentPlayback = settings?.playback || {};
+    saveSettings({
+      ...settings,
+      playback: {
+        ...currentPlayback,
+        [isLive ? 'livePlayer' : 'moviePlayer']: engineId,
+      }
+    });
+
+    // 2. 立即重新以新的解码内核载入并播放
+    const retry = candidate || controller.start();
+    if (retry) {
+      setResolvedInput(null);
+      setError('');
+      controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
+    }
+  };
   const [playbackTime, setPlaybackTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [otherSourceSearchOpen, setOtherSourceSearchOpen] = useState(false);
@@ -299,6 +323,10 @@ function PlaybackView({
     return favorites.some(item => item.targetType === targetType && item.targetId === targetId);
   }, [favorites, isLive, request]);
 
+  const currentSourceItem = sources.find(s => s.sourceId === source);
+  const sourceName = currentSourceItem?.name || candidate?.metadata?.sourceName || '当前源';
+  const actors = movie?.actors || movie?.actorsList || request?.metadata?.movie?.actors || [];
+
   return (
     <div className="player-page theme-sangtian-layout">
       {/* 1. Top Bar: Left (Hamburger), Center (Title), Right (More Vertical) */}
@@ -377,7 +405,7 @@ function PlaybackView({
         onSelectCandidate={switchCandidate}
         onOpenSourceModal={() => setSourceModalOpen(true)}
         decoderEngine={decoderEngine}
-        onChangeDecoderEngine={setDecoderEngine}
+        onChangeDecoderEngine={handleSwitchDecoderEngine}
         onTimeMetricsChange={(cur, dur) => {
           setPlaybackTime(cur);
           if (dur > 0 && Number.isFinite(dur)) {
@@ -409,7 +437,7 @@ function PlaybackView({
       <SangtianConsoleCard
         title={isLive ? (request?.metadata?.title ?? channel?.name ?? 'LIVE 直播') : (request?.metadata?.title || movie?.title || '精彩视频')}
         subtitle={isLive ? `● 正在直播 · ${request?.metadata?.category ?? channel?.category ?? '通用频道'}` : `${movie?.year || '2026'} · ${movie?.category || '高清影音'} · 第 ${episodeIndex + 1} 集`}
-        description={isLive ? (currentProgram ? `当前节目：${currentProgram.title || '未命名'} (${currentProgram.startAt || ''}–${currentProgram.endAt || ''})${nextProgram ? ` | 下一节目：${nextProgram.title || ''}` : ''}` : '') : (movie?.description || '暂无内容简介。')}
+        description={isLive ? (currentProgram ? `当前节目：${currentProgram.title || '未命名'} (${currentProgram.startAt || ''}–${currentProgram.endAt || ''})${nextProgram ? ` | 下一节目：${nextProgram.title || ''}` : ''}` : '') : (movie?.description || '暂无剧情简介。')}
         episodes={isLive ? [] : episodes}
         currentEpisodeId={isLive ? null : request?.episodeId}
         onSelectEpisode={idx => {
@@ -437,6 +465,8 @@ function PlaybackView({
         }}
         isFav={isLive ? false : favorites.some(item => item.targetId === request?.contentId)}
         onSearchSameName={isLive ? undefined : () => setOtherSourceSearchOpen(true)}
+        sourceName={sourceName}
+        actors={actors}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {
