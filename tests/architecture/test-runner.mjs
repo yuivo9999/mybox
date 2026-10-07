@@ -53,6 +53,13 @@ expect('src/runtime/nativeHttpBridge.js', [
   /headers/,
 ]);
 expect('src/runtime/webViewRuntime.js', [/nativeHttp/, /nativeHttpRequest/, /ALLOWED_BRIDGE_METHODS/, /BRIDGE_METHOD_NOT_ALLOWED/]);
+expect('android/app/src/main/java/com/yuivo9999/mybox123/NativePlaybackBridge.java', [
+  /playbackGeneration/,
+  /MimeTypes\.APPLICATION_M3U8/,
+  /generation != playbackGeneration \|\| released/,
+  /fallbackOrError\(.*generation/,
+]);
+
 expectNo('src/runtime/nativeHttpBridge.js', [/window\.Android/, /eval\(/, /Function\(/]);
 
 
@@ -74,6 +81,22 @@ expect('src/state/persistentStateStore.js', [/updateSettings/]);
 expect('src/pages/MainPage.jsx', [/自动继续播放/, /默认影视线路/, /默认直播线路/, /主题/, /字体/, /卡片显示/, /显示密度/, /SettingMenu/, /onUpdateSettings/]);
 expect('src/app/App.jsx', [/persistent\.settings/, /defaultMovieSource/, /defaultLiveSource/, /autoplayResume/, /onUpdateSettings/]);
 expect('src/services/playbackService.js', [/preferredSource/, /getVODCandidates/, /createVODRequest/, /createLiveRequest/]);
+expect('src/playback/playbackCore.js', [
+  /operationEpoch/,
+  /isOperationCurrent/,
+  /recoverCandidateId/,
+  /task\.currentCandidateId!==recoverCandidateId/,
+  /operationEpoch\+=1/,
+]);
+expect('src/player/html5PlayerAdapter.js', [
+  /hlsGeneration/,
+  /isCurrentHls/,
+  /liveSyncMode: 'buffered'/,
+  /startOnSegmentBoundary: true/,
+  /initialLiveManifestSize: 6/,
+  /prepare\(\).*if\(hlsInstance\)return input/,
+]);
+
 expect('src/pages/PlaybackPage.jsx', [/重新播放/, /切换线路/]);
 expectNo('src/pages/MainPage.jsx', [/title="自动继续播放"\/>/, /title="默认播放线路"\/>/, /title="主题"\/>/, /title="字体"\/>/, /title="卡片显示"\/>/, /title="显示密度"\/>/]);
 
