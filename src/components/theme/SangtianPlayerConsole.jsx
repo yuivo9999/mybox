@@ -148,6 +148,23 @@ export function SangtianPlayerWindowCore({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [isWebFullscreen]);
 
+  // 沉浸播放器位于 .screen（该容器为桌面布局服务且自身 overflow:hidden），
+  // 固定定位虽然保持在同一 React 播放器实例中，但仍可能被父级裁剪。
+  // 沉浸期间临时解除该裁剪并锁住页面滚动；退出/卸载时完整恢复原状态。
+  useEffect(() => {
+    if (!isImmersive) return undefined;
+    const screen = videoContainerRef?.current?.closest?.('.screen');
+    const body = typeof document !== 'undefined' ? document.body : null;
+    const previousScreenOverflow = screen?.style?.overflow ?? '';
+    const previousBodyOverflow = body?.style?.overflow ?? '';
+    if (screen) screen.style.overflow = 'visible';
+    if (body) body.style.overflow = 'hidden';
+    return () => {
+      if (screen) screen.style.overflow = previousScreenOverflow;
+      if (body) body.style.overflow = previousBodyOverflow;
+    };
+  }, [isImmersive, videoContainerRef]);
+
   // Auto-hide fullscreen controls after 3 seconds of inactivity
   const fullscreen = isSystemFullscreen || isImmersive || isWebFullscreen;
 
