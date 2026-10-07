@@ -957,9 +957,14 @@ export function SangtianPlayerWindowCore({
                             { id: 'exo_software', name: 'ExoPlayer 软解 (Software)' },
                             { id: 'ijk_software', name: 'IJKPlayer 软解 (FFmpeg)' },
                           ].map((engine) => {
-                            const effectiveDecoderEngine = decoderEngine === 'exo' || decoderEngine === 'ijk'
-                              ? decoderEngine + '_hardware'
-                              : decoderEngine;
+                            const effectiveDecoderEngine = [
+                              'ijk_hardware',
+                              'exo_hardware',
+                              'exo_software',
+                              'ijk_software',
+                            ].includes(decoderEngine)
+                              ? decoderEngine
+                              : 'ijk_hardware';
                             const isActive = effectiveDecoderEngine === engine.id;
                             return (
                               <button
