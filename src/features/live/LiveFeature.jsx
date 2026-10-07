@@ -109,20 +109,10 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
-    let decoderMode = 'hardware';
-    if (typeof engineInput === 'string') {
-      if (engineInput.includes('exo')) {
-        engine = 'exo';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else if (engineInput.includes('ijk')) {
-        engine = 'ijk';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else {
-        engine = engineInput;
-      }
-    }
-    setDecoderEngine(getPlaybackScheme(engineInput).id);
+    const scheme = getPlaybackScheme(engineInput);
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    setDecoderEngine(scheme.id);
     globalLiveCache.decoderEngine = engineInput;
 
     // 1. 保存设置到持久化 settings 中
