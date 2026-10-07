@@ -6,7 +6,7 @@ import {
   Lock, Unlock, ListVideo, Square, Heart, Search, Radio
 } from 'lucide-react';
 
-export function SangtianPlayerWindow({
+export function SangtianPlayerWindowCore({
   videoRef, controller, status, error, resolvedInput, candidate, request, onRetry, onSwitchCandidate, onStop,
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
@@ -17,7 +17,7 @@ export function SangtianPlayerWindow({
   episodes = [], currentEpisodeIndex = 0, onSelectEpisode,
   onPreviousEpisode, onNextEpisode,
   candidates = [], onSelectCandidate, onOpenSourceModal,
-  onTimeMetricsChange,
+  onTimeMetricsChange, playerScope = 'generic',
 }) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -416,7 +416,8 @@ export function SangtianPlayerWindow({
 
   return (
     <div
-      className={`sangtian-window ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
+      className={`sangtian-window player-scope-${playerScope} ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
+      data-player-scope={playerScope}
       onMouseMove={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
       onTouchStart={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
     >
