@@ -14,11 +14,14 @@ import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
@@ -55,6 +58,16 @@ public final class NativePlaybackBridge {
     private static final String ENGINE_IJK = "ijk";
     private static final String ENGINE_NATIVE = "native";
 
+    // Live streams use a smoothness-first buffer policy. This is an upper
+    // bound for forward/prepared media, not a promise that every network can
+    // continuously fill a full 60 seconds.
+    private static final int LIVE_BUFFER_MAX_MS = 60_000;
+    private static final int VOD_BUFFER_MAX_MS = 200_000;
+    private static final int LIVE_BUFFER_MIN_MS = 15_000;
+    private static final int VOD_BUFFER_MIN_MS = 30_000;
+    private static final int LIVE_BUFFER_FOR_PLAYBACK_MS = 1_500;
+    private static final int LIVE_BUFFER_AFTER_REBUFFER_MS = 5_000;
+
     private final MainActivity activity;
     private final WebView webView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -63,16 +76,19 @@ public final class NativePlaybackBridge {
     private Surface surface;
 
     private String url;
+    private String mediaProtocol = "";
     private Map<String, String> headers = Collections.emptyMap();
     private String cookies = "";
-    private String decoderMode = "auto";
+    private String decoderMode = "hardware";
     private Map<String, String> decoderModes = Collections.emptyMap();
     private Map<String, List<IjkOption>> ijkProfiles = Collections.emptyMap();
     private String ijkProfile = "";
     private boolean fallbackEnabled = true;
     private boolean livePlayback = false;
+    private int liveBufferMaxMs = LIVE_BUFFER_MAX_MS;
+    private int vodBufferMaxMs = VOD_BUFFER_MAX_MS;
     private List<String> configuredFallbackOrder = Collections.emptyList();
-    private String selectedEngine = ENGINE_EXO;
+    private String selectedEngine = ENGINE_IJK;
     private String actualExoDecoderName = "";
     private List<String> engineOrder = Collections.emptyList();
     private int engineIndex = 0;
@@ -80,6 +96,9 @@ public final class NativePlaybackBridge {
     private boolean wantPlay = false;
     private boolean released = false;
     private long lastPositionMs = 0L;
+    // Monotonically increases for every load/fallback. Native callbacks from an
+    // obsolete engine instance must never mutate the newly selected playback.
+    private long playbackGeneration = 0L;
 
     private ExoPlayer exoPlayer;
     private IjkMediaPlayer ijkPlayer;
@@ -150,24 +169,45 @@ public final class NativePlaybackBridge {
             JSONObject input = new JSONObject(payload == null ? "{}" : payload);
             url = input.optString("url", "");
             if (url.isEmpty()) return error("PLAYER_URL_REQUIRED");
+            playbackGeneration += 1L;
+            mediaProtocol = normalizeProtocol(input.optString("protocol", ""), url);
 
             headers = readMap(input.optJSONObject("headers"));
             cookies = input.optString("cookies", "");
 
             JSONObject hint = input.optJSONObject("playerHint");
-            String requested = hint == null ? "" : hint.optString("engine", "");
-            decoderMode = hint == null ? "auto" : hint.optString("decoder", "auto");
+            String requested = hint == null ? ENGINE_IJK : hint.optString("engine", ENGINE_IJK);
+            decoderMode = hint == null ? "hardware" : hint.optString("decoder", "hardware");
             decoderModes = readStringMap(hint == null ? null : hint.optJSONObject("decoderModes"));
             ijkProfiles = readIjkProfiles(hint == null ? null : hint.optJSONObject("ijkProfiles"));
             ijkProfile = hint == null ? "" : hint.optString("ijkProfile", "").trim();
             fallbackEnabled = hint == null || hint.optBoolean("fallbackEnabled", true);
             livePlayback = hint != null && hint.optBoolean("live", false);
+            liveBufferMaxMs = livePlayback
+                    ? Math.max(15_000, Math.min(LIVE_BUFFER_MAX_MS,
+                            (int) Math.round((hint == null ? 60d : hint.optDouble("liveBufferMaxSeconds", 60d)) * 1000d)))
+                    : LIVE_BUFFER_MAX_MS;
+            vodBufferMaxMs = !livePlayback
+                    ? Math.max(30_000, Math.min(VOD_BUFFER_MAX_MS,
+                            (int) Math.round((hint == null ? 200d : hint.optDouble("vodBufferMaxSeconds", 200d)) * 1000d)))
+                    : VOD_BUFFER_MAX_MS;
             configuredFallbackOrder = readStringList(hint == null ? null : hint.optJSONArray("fallbackOrder"));
             engineOrder = buildEngineOrder(requested, url, input.optString("protocol", ""));
 
             engineIndex = 0;
             selectedEngine = engineOrder.get(engineIndex);
-            decoderMode = decoderModes.getOrDefault(selectedEngine, decoderMode);
+            // Explicit UI selection wins over persisted per-engine defaults.
+            // decoderModes is only the fallback when no decoder was requested for
+            // this load.
+            String requestedDecoder = hint == null ? "hardware" : hint.optString("decoder", "hardware").trim().toLowerCase();
+            decoderMode = requestedDecoder.isEmpty() || "auto".equals(requestedDecoder)
+                    ? decoderModes.getOrDefault(selectedEngine, "hardware")
+                    : requestedDecoder;
+            if (ENGINE_IJK.equals(selectedEngine) && !"software".equals(decoderMode)) {
+                decoderMode = "hardware";
+            } else if (ENGINE_EXO.equals(selectedEngine) && !"software".equals(decoderMode)) {
+                decoderMode = "hardware";
+            }
             prepared = false;
             wantPlay = false;
             releaseCurrentEngine();
@@ -362,6 +402,9 @@ public final class NativePlaybackBridge {
             state.put("decoder", actualDecoder());
             state.put("decoderMode", decoderMode);
             state.put("fallbackEnabled", fallbackEnabled);
+            state.put("livePlayback", livePlayback);
+            state.put("liveBufferMaxMs", liveBufferMaxMs);
+            state.put("vodBufferMaxMs", vodBufferMaxMs);
             state.put("url", url == null ? "" : url);
             state.put("prepared", prepared);
             state.put("wantPlay", wantPlay);
@@ -428,6 +471,28 @@ public final class NativePlaybackBridge {
         if (!released) releaseMedia("{}");
     }
 
+    private static String normalizeProtocol(String protocol, String mediaUrl) {
+        String explicit = protocol == null ? "" : protocol.trim().toLowerCase();
+        if ("hls/m3u8".equals(explicit)) return "hls";
+        if (!explicit.isEmpty()) return explicit;
+
+        String value = mediaUrl == null ? "" : mediaUrl.trim().toLowerCase();
+        if (value.contains(".m3u8") || value.contains("/pltv/") || value.contains("/tvod/")) return "hls";
+        if (value.startsWith("rtmp://")) return "rtmp";
+        if (value.startsWith("rtsp://")) return "rtsp";
+        if (value.contains(".flv")) return "flv";
+        if (value.contains(".mpd")) return "dash";
+        return (value.startsWith("http://") || value.startsWith("https://")) ? "http" : "";
+    }
+
+    private boolean isHlsProtocol() {
+        return "hls".equals(mediaProtocol);
+    }
+
+    private boolean isIJKOnlyProtocol() {
+        return "rtmp".equals(mediaProtocol) || "flv".equals(mediaProtocol);
+    }
+
     private List<String> buildEngineOrder(String requested, String mediaUrl, String protocol) {
         ArrayList<String> result = new ArrayList<>();
         String normalized = requested == null ? "" : requested.trim().toLowerCase();
@@ -442,13 +507,22 @@ public final class NativePlaybackBridge {
         } else if (ENGINE_NATIVE.equals(normalized)) {
             result.add(ENGINE_NATIVE); result.add(ENGINE_EXO); result.add(ENGINE_IJK);
         } else {
-            result.add(ENGINE_EXO); result.add(ENGINE_IJK); result.add(ENGINE_NATIVE);
+            result.add(ENGINE_IJK); result.add(ENGINE_EXO); result.add(ENGINE_NATIVE);
         }
-        if (!fallbackEnabled && !result.isEmpty()) return Collections.singletonList(result.get(0));
         ArrayList<String> unique = new ArrayList<>();
         for (String item : result) {
             if ((ENGINE_EXO.equals(item) || ENGINE_IJK.equals(item) || ENGINE_NATIVE.equals(item)) && !unique.contains(item)) unique.add(item);
         }
+
+        // RTMP/FLV are IJK-only in this native playback path. This protocol rule
+        // must take precedence over the generic "fallback disabled" shortcut.
+        if (isIJKOnlyProtocol()) {
+            unique.clear();
+            unique.add(ENGINE_IJK);
+            return unique;
+        }
+
+        if (!fallbackEnabled && !unique.isEmpty()) return Collections.singletonList(unique.get(0));
 
         // Live playback has a stricter fallback contract: when IJK hardware fails,
         // ExoPlayer must be the immediate next engine. Do not let a user-configured
@@ -469,6 +543,7 @@ public final class NativePlaybackBridge {
     }
 
     private void createExo() {
+        final long generation = playbackGeneration;
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory();
         if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
         if (!cookies.isEmpty()) {
@@ -481,9 +556,28 @@ public final class NativePlaybackBridge {
                 .setEnableDecoderFallback(true)
                 .setMediaCodecSelector(createDecoderSelector());
 
-        exoPlayer = new ExoPlayer.Builder(activity, renderersFactory)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
+        ExoPlayer.Builder builder = new ExoPlayer.Builder(activity, renderersFactory)
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory));
+
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMsForStreaming(
+                        livePlayback ? LIVE_BUFFER_MIN_MS : VOD_BUFFER_MIN_MS,
+                        livePlayback ? liveBufferMaxMs : vodBufferMaxMs,
+                        livePlayback ? LIVE_BUFFER_FOR_PLAYBACK_MS : 2_500,
+                        livePlayback ? LIVE_BUFFER_AFTER_REBUFFER_MS : 5_000)
+                .setPrioritizeTimeOverSizeThresholdsForStreaming(true)
+                .setBackBuffer(0, false)
                 .build();
+        builder.setLoadControl(loadControl);
+
+        if (!livePlayback && isHlsProtocol()) {
+            // Exact VOD HLS seeking prevents the seek request from being silently
+            // snapped to a nearby keyframe. Media3 still resolves the seek using
+            // the HLS timeline and loads fragments in their natural sequence.
+            builder.setSeekParameters(SeekParameters.EXACT);
+        }
+
+        exoPlayer = builder.build();
 
         exoPlayer.addAnalyticsListener(new AnalyticsListener() {
             @Override public void onVideoDecoderInitialized(
@@ -491,6 +585,7 @@ public final class NativePlaybackBridge {
                     String decoderName,
                     long initializedTimestampMs,
                     long initializationDurationMs) {
+                if (generation != playbackGeneration || released) return;
                 actualExoDecoderName = decoderName == null ? "" : decoderName;
                 emit("decoderChanged", decoderObject());
             }
@@ -498,6 +593,7 @@ public final class NativePlaybackBridge {
 
         exoPlayer.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
+                if (generation != playbackGeneration || released) return;
                 if (state == Player.STATE_BUFFERING) emit("bufferingStart", null);
                 if (state == Player.STATE_READY) {
                     prepared = true;
@@ -510,18 +606,25 @@ public final class NativePlaybackBridge {
             }
 
             @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (generation != playbackGeneration || released) return;
                 emit(isPlaying ? "playing" : "paused", null);
             }
 
             @Override public void onPlayerError(PlaybackException error) {
-                fallbackOrError("EXO_ERROR:" + safeMessage(error));
+                if (generation != playbackGeneration || released) return;
+                fallbackOrError("EXO_ERROR:" + safeMessage(error), generation);
             }
         });
 
         // The bridge owns the TextureView Surface lifecycle for all engines.
         // Do not also call setVideoTextureView(), which installs a second
         // SurfaceTexture lifecycle on the same TextureView.
-        exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
+        MediaItem.Builder mediaItemBuilder = new MediaItem.Builder().setUri(Uri.parse(url));
+        // Some live HLS endpoints do not end in .m3u8 (for example /pltv/ or
+        // /tvod/ URLs). Explicitly declare the HLS MIME type so Media3 cannot
+        // misclassify them as progressive HTTP and break the segment timeline.
+        if (isHlsProtocol()) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8);
+        exoPlayer.setMediaItem(mediaItemBuilder.build());
         attachSurface();
     }
 
@@ -544,6 +647,7 @@ public final class NativePlaybackBridge {
     }
 
     private void createIjk() throws IOException {
+        final long generation = playbackGeneration;
         ijkPlayer = new IjkMediaPlayer();
         applyIjkProfile();
         if (!headers.isEmpty()) ijkPlayer.setDataSource(url, headers);
@@ -553,6 +657,7 @@ public final class NativePlaybackBridge {
         }
 
         ijkPlayer.setOnPreparedListener(mp -> {
+            if (generation != playbackGeneration || released) return;
             // IJK can silently fall back to FFmpeg when MediaCodec selection fails.
             // Treat that as a hardware-decoder failure when hardware was requested,
             // so Live goes directly to Exo and VOD gets the explicit IJK software step.
@@ -560,11 +665,11 @@ public final class NativePlaybackBridge {
                 try {
                     int actual = ijkPlayer.getVideoDecoder();
                     if (actual != 2) {
-                        fallbackOrError("IJK_HARDWARE_NOT_ACTIVE:" + actual);
+                        fallbackOrError("IJK_HARDWARE_NOT_ACTIVE:" + actual, generation);
                         return;
                     }
                 } catch (Throwable e) {
-                    fallbackOrError("IJK_HARDWARE_PROBE:" + safeMessage(e));
+                    fallbackOrError("IJK_HARDWARE_PROBE:" + safeMessage(e), generation);
                     return;
                 }
             }
@@ -573,15 +678,17 @@ public final class NativePlaybackBridge {
             emit("decoderChanged", decoderObject());
             emit("prepared", null);
             if (wantPlay) {
-                try { ijkPlayer.start(); } catch (Throwable e) { fallbackOrError("IJK_PLAY:" + safeMessage(e)); }
+                try { ijkPlayer.start(); } catch (Throwable e) { fallbackOrError("IJK_PLAY:" + safeMessage(e), generation); }
             }
         });
-        ijkPlayer.setOnCompletionListener(mp -> emit("completed", null));
+        ijkPlayer.setOnCompletionListener(mp -> { if (generation == playbackGeneration && !released) emit("completed", null); });
         ijkPlayer.setOnBufferingUpdateListener((mp, percent) -> {
+            if (generation != playbackGeneration || released) return;
             if (percent < 100) emit("buffering", null);
         });
         ijkPlayer.setOnErrorListener((mp, what, extra) -> {
-            fallbackOrError("IJK_ERROR:" + what + ":" + extra);
+            if (generation != playbackGeneration || released) return;
+            fallbackOrError("IJK_ERROR:" + what + ":" + extra, generation);
             return true;
         });
 
@@ -603,7 +710,8 @@ public final class NativePlaybackBridge {
             new java.util.HashSet<>(java.util.Arrays.asList(
                     "opensles", "overlay-format", "framedrop", "soundtouch",
                     "start-on-prepared", "http-detect-range-support", "fflags",
-                    "skip_loop_filter", "reconnect", "max-buffer-size",
+                    "skip_loop_filter", "reconnect", "max-buffer-size", "max_cached_duration",
+                    "packet-buffering", "infbuf",
                     "enable-accurate-seek", "mediacodec", "mediacodec-auto-rotate",
                     "mediacodec-handle-resolution-change", "mediacodec-hevc",
                     "dns_cache_timeout"
@@ -665,9 +773,35 @@ public final class NativePlaybackBridge {
         } else if ("software".equals(decoderMode)) {
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 0);
         }
+
+        // Live/VOD cache policy for the FlutterPlayer IJK fork. The fork's
+        // max_cached_duration option follows the player's duration setting
+        // convention, so pass seconds rather than milliseconds.
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "max_cached_duration",
+                livePlayback ? 60 : Math.max(30, vodBufferMaxMs / 1000));
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "infbuf",
+                0);
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "packet-buffering",
+                1);
+
+        // HLS VOD seeks must be accurate enough to land on the requested timeline
+        // while FFmpeg continues reading the playlist/segments in order.
+        if (!livePlayback && isHlsProtocol()) {
+            ijkPlayer.setOption(
+                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                    "enable-accurate-seek",
+                    1);
+        }
     }
 
     private void createNative() throws IOException {
+        final long generation = playbackGeneration;
         nativePlayer = new MediaPlayer();
         nativePlayer.setAudioAttributes(new AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
@@ -675,17 +809,20 @@ public final class NativePlaybackBridge {
                 .build());
 
         nativePlayer.setOnPreparedListener(mp -> {
+            if (generation != playbackGeneration || released) return;
             prepared = true;
             emit("prepared", null);
             if (wantPlay) {
                 try { mp.start(); } catch (Throwable e) { emit("error", errorObject("NATIVE_PLAY:" + safeMessage(e))); }
             }
         });
-        nativePlayer.setOnCompletionListener(mp -> emit("completed", null));
+        nativePlayer.setOnCompletionListener(mp -> { if (generation == playbackGeneration && !released) emit("completed", null); });
         nativePlayer.setOnBufferingUpdateListener((mp, percent) -> {
+            if (generation != playbackGeneration || released) return;
             if (percent < 100) emit("buffering", null);
         });
         nativePlayer.setOnErrorListener((mp, what, extra) -> {
+            if (generation != playbackGeneration || released) return true;
             emit("error", errorObject("NATIVE_ERROR:" + what + ":" + extra));
             return true;
         });
@@ -724,11 +861,38 @@ public final class NativePlaybackBridge {
     }
 
     private synchronized String fallbackOrError(String reason) {
+        return fallbackOrError(reason, playbackGeneration);
+    }
+
+    private synchronized String fallbackOrError(String reason, long generation) {
+        if (generation != playbackGeneration || released) return ok("stale", true);
+
+        if (ENGINE_IJK.equals(selectedEngine)
+                && "hardware".equals(decoderMode)
+                && livePlayback
+                && isIJKOnlyProtocol()
+                && fallbackEnabled) {
+            playbackGeneration += 1L;
+            releaseCurrentEngine();
+            decoderMode = "software";
+            prepared = false;
+            try {
+                createCurrentEngine();
+                emit("reconnecting", errorObject("fallback:ijk_hardware_to_software:" + reason));
+                prepareMedia("{}");
+                return ok("fallbackDecoder", "software");
+            } catch (Throwable next) {
+                emit("error", errorObject("IJK_SOFTWARE_FALLBACK:" + safeMessage(next)));
+                return error("IJK_SOFTWARE_FALLBACK:" + safeMessage(next));
+            }
+        }
+
         if (ENGINE_IJK.equals(selectedEngine)
                 && "hardware".equals(decoderMode)
                 && !livePlayback
                 && fallbackEnabled) {
             lastPositionMs = currentPositionMs();
+            playbackGeneration += 1L;
             releaseCurrentEngine();
             decoderMode = "software";
             prepared = false;
@@ -747,6 +911,7 @@ public final class NativePlaybackBridge {
 
         if (engineIndex + 1 < engineOrder.size()) {
             lastPositionMs = currentPositionMs();
+            playbackGeneration += 1L;
             releaseCurrentEngine();
             engineIndex++;
             selectedEngine = engineOrder.get(engineIndex);

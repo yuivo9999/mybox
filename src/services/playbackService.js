@@ -13,6 +13,16 @@ function sortCandidates(candidates) {
   return [...candidates].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 }
 
+function normalizeCandidatePlayerHint(playerHint) {
+  if (!playerHint || typeof playerHint !== 'object') return undefined;
+  const next = { ...playerHint };
+  // Decoder engine/mode is an application-level preference, not a source-level
+  // property. Explicit player UI selections are re-injected after this step.
+  delete next.engine;
+  delete next.decoder;
+  return next;
+}
+
 function isSupportedVODCandidate(candidate) {
   const capability = String(candidate?.metadata?.sourceCapability || '').trim();
   const adapterType = String(candidate?.metadata?.adapterType || '').trim();
@@ -49,6 +59,7 @@ export const playbackService = {
       episodeId: candidate.episodeId ?? episode.episodeId,
       sourceId: candidate.sourceId ?? episode.sourceRefs?.[0]?.sourceId ?? content.sourceRefs?.[0]?.sourceId,
       priority: (candidate.priority ?? -index) + (preferredSource && candidate.sourceId === preferredSource ? 100000 : 0),
+      playerHint: normalizeCandidatePlayerHint(candidate.playerHint),
     })));
   },
 
@@ -63,7 +74,7 @@ export const playbackService = {
       streamId: stream.streamId || `stream-${channel.channelId}-${index + 1}`,
       priority: Number.isFinite(stream.priority) ? stream.priority : -index,
       metadata: { channelName: channel.name, streamIndex: index, label: stream.label || `线路 ${index + 1}`, ...(stream.metadata ?? {}) },
-      playerHint: { ...(stream.playerHint ?? {}), autoplay: true },
+      playerHint: { ...normalizeCandidatePlayerHint(stream.playerHint), autoplay: true },
     }));
   },
 

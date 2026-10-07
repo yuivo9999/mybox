@@ -2736,4 +2736,54 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
   color: #c9bdae;
 }
 
+/* Player feature blocks: each screen owns an explicit player namespace.
+   The underlying Sangtian core stays reusable, but feature DOM/state entry points
+   are isolated so Live, immersive Live, and PlaybackPage cannot accidentally mix
+   business controls or CSS assumptions. */
+.player-feature-block {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  contain: layout style paint;
+}
 
+.player-feature-block-live {
+  --player-feature-scope: live;
+}
+
+.player-feature-block-live-immersive {
+  --player-feature-scope: live-immersive;
+}
+
+.player-feature-block-playback {
+  --player-feature-scope: playback-page;
+}
+
+.player-feature-block[data-player-block="live"] .sangtian-window {
+  isolation: isolate;
+}
+
+.player-feature-block[data-player-block="playback-page"] .sangtian-window {
+  isolation: isolate;
+}
+
+.sangtian-window[data-player-scope="live"] .sangtian-fullscreen-controls {
+  isolation: isolate;
+}
+
+.sangtian-window[data-player-scope="playback-page"] .sangtian-fullscreen-controls {
+  isolation: isolate;
+}
+
+
+.player-feature-block-tv1-live {
+  --player-feature-scope: tv1-live;
+}
+
+.player-feature-block[data-player-block="tv1-live"] .sangtian-window {
+  isolation: isolate;
+}
+
+.sangtian-window[data-player-scope="tv1-live"] .sangtian-fullscreen-controls {
+  isolation: isolate;
+}

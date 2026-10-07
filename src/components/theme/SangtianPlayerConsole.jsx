@@ -6,18 +6,18 @@ import {
   Lock, Unlock, ListVideo, Square, Heart, Search, Radio
 } from 'lucide-react';
 
-export function SangtianPlayerWindow({
+export function SangtianPlayerWindowCore({
   videoRef, controller, status, error, resolvedInput, candidate, request, onRetry, onSwitchCandidate, onStop,
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
   channels = [], activeChannel = null, activeStreamIndex = 0, onSelectChannel, onSwitchStreamIndex,
-  decoderEngine = 'exo', onChangeDecoderEngine,
+  decoderEngine = 'ijk_hardware', onChangeDecoderEngine,
   isImmersive = false, onToggleImmersive,
   title = '', episodeLabel = '', sourceLabel = '',
   episodes = [], currentEpisodeIndex = 0, onSelectEpisode,
   onPreviousEpisode, onNextEpisode,
   candidates = [], onSelectCandidate, onOpenSourceModal,
-  onTimeMetricsChange,
+  onTimeMetricsChange, playerScope = 'generic',
 }) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -416,7 +416,8 @@ export function SangtianPlayerWindow({
 
   return (
     <div
-      className={`sangtian-window ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
+      className={`sangtian-window player-scope-${playerScope} ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
+      data-player-scope={playerScope}
       onMouseMove={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
       onTouchStart={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
     >
@@ -946,18 +947,25 @@ export function SangtianPlayerWindow({
                         );
                       })()}
 
-                      <div className="settings-group">
-                        <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
+                      {onChangeDecoderEngine && (
+                        <div className="settings-group">
+                          <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
                         <div className="settings-btn-grid vertical">
                           {[
+                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
                             { id: 'exo_hardware', name: 'ExoPlayer 硬解 (MediaCodec)' },
                             { id: 'exo_software', name: 'ExoPlayer 软解 (Software)' },
-                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
                             { id: 'ijk_software', name: 'IJKPlayer 软解 (FFmpeg)' },
-                            { id: 'native', name: 'Android System Native' },
-                            { id: 'html5', name: 'HTML5 Web Engine' },
                           ].map((engine) => {
-                            const isActive = decoderEngine === engine.id || (decoderEngine === 'exo' && engine.id.includes('exo')) || (decoderEngine === 'ijk' && engine.id.includes('ijk'));
+                            const effectiveDecoderEngine = [
+                              'ijk_hardware',
+                              'exo_hardware',
+                              'exo_software',
+                              'ijk_software',
+                            ].includes(decoderEngine)
+                              ? decoderEngine
+                              : 'ijk_hardware';
+                            const isActive = effectiveDecoderEngine === engine.id;
                             return (
                               <button
                                 key={engine.id}
@@ -968,8 +976,9 @@ export function SangtianPlayerWindow({
                               </button>
                             );
                           })}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       <div className="settings-group exit-section">
                         <button

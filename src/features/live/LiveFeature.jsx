@@ -5,8 +5,10 @@ import { playbackService } from '../../services/playbackService.js';
 import { requestManager } from '../../services/requestManager.js';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
+import { usePersistentState } from '../../state/usePersistentState.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
-import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { LivePlayerBlock } from '../../components/player/LivePlayerBlock.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
 
 export function createLiveFeature({ channels = [] } = {}) {
   return {
@@ -16,7 +18,16 @@ export function createLiveFeature({ channels = [] } = {}) {
     async getEPG(channel, range) { return liveService.getEPG(channel, range); },
   };
 }
-
+function inferLiveProtocol(url) {
+  const value = String(url ?? '').trim().toLowerCase();
+  if (/\.m3u8(?:[?#]|$)/i.test(value) || value.includes('/pltv/') || value.includes('/tvod/')) return 'hls';
+  if (value.startsWith('rtmp://')) return 'rtmp';
+  if (value.startsWith('rtsp://')) return 'rtsp';
+  if (/\.flv(?:[?#]|$)/i.test(value)) return 'flv';
+  if (/\.mpd(?:[?#]|$)/i.test(value)) return 'dash';
+  if (value.startsWith('http://') || value.startsWith('https://')) return 'http';
+  return '';
+}
 
 export async function resolveLiveChannelStreams(channel, { sources = [], signal, forceRefresh = false } = {}) {
   if (!channel) return [];
@@ -56,18 +67,23 @@ export async function resolveLiveChannelStreams(channel, { sources = [], signal,
 }
 
 // Global Live State Cache across Tab Navigations
+function normalizeLiveDecoderSelection(player, mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (mode === 'software' ? 'software' : 'hardware')).id;
+}
+
 export const globalLiveCache = {
   tv1Channels: [],
   selectedChannelId: '',
   selectedCategory: '全部',
   resolvedStreams: {},
   activeStreamIndex: 0,
-  decoderEngine: 'exo',
+  decoderEngine: null,
   isImmersive: false,
 };
 
 export function LiveFeature({ channels = [], sources = [], favorites = [], onChannel, onPlay, onTab, toggleFavorite }) {
   const page = usePageState();
+  const persistent = usePersistentState();
   const videoRef = useRef(null);
   const playerWindowBodyRef = useRef(null);
   const [selectedChannelId, setSelectedChannelId] = useState(globalLiveCache.selectedChannelId);
@@ -79,26 +95,25 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [tv1Error, setTv1Error] = useState(null);
   const [resolvedStreams, setResolvedStreams] = useState(globalLiveCache.resolvedStreams || {});
   const [streamLoading, setStreamLoading] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(
-    globalLiveCache.decoderEngine ?? persistent.settings?.playback?.livePlayer ?? 'exo'
-  );
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = persistent.settings?.playback || {};
+    const persistedScheme = playback.livePlaybackScheme;
+    if (persistedScheme) return getPlaybackScheme(persistedScheme).id;
+    if (globalLiveCache.decoderEngine) {
+      const cached = globalLiveCache.decoderEngine;
+      if (cached.includes('_')) return getPlaybackScheme(cached).id;
+      return normalizeLiveDecoderSelection(cached, playback.decoder?.[cached] || 'hardware');
+    }
+    const player = playback.livePlayer || 'ijk';
+    return normalizeLiveDecoderSelection(player, playback.decoder?.[player] || 'hardware');
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
-    let decoderMode = 'hardware';
-    if (typeof engineInput === 'string') {
-      if (engineInput.includes('exo')) {
-        engine = 'exo';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else if (engineInput.includes('ijk')) {
-        engine = 'ijk';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else {
-        engine = engineInput;
-      }
-    }
-    setDecoderEngine(engineInput);
-    globalLiveCache.decoderEngine = engineInput;
+    const scheme = getPlaybackScheme(engineInput);
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    setDecoderEngine(scheme.id);
+    globalLiveCache.decoderEngine = scheme.id;
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = persistent.settings?.playback || {};
@@ -106,6 +121,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       playback: {
         ...currentPlayback,
         livePlayer: engine,
+        livePlaybackScheme: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
@@ -174,14 +190,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setSelectedChannelId('');
     setActiveStreamIndex(0);
 
-    const isHls = /\.m3u8(?:[?#]|$)/i.test(trimmed) || trimmed.toLowerCase().includes('/pltv/') || trimmed.toLowerCase().includes('/tvod/');
+    const protocol = inferLiveProtocol(trimmed);
 
     const cand = {
       candidateId: 'custom-live-stream-' + Date.now(),
       mediaUrl: trimmed,
       url: trimmed,
       label: '自定义直播',
-      protocol: isHls ? 'HLS/M3U8' : 'HTTP/MP4',
+      protocol,
       sourceId: 'custom',
       kind: 'live',
     };
@@ -355,6 +371,18 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     if (!livePlaybackRequest) return null;
     const ctrl = playbackService.createController(livePlaybackRequest, {
       onStateChange: setPlaybackStatus,
+      onEvent: event => {
+        if (event?.event !== 'decoderChanged') return;
+        const payload = event?.data ?? event?.decoder ?? {};
+        const decoder = payload?.decoder ?? '';
+        const engine = payload?.engine ?? '';
+        const mode = String(payload?.mode ?? '').toLowerCase();
+        if (engine === 'exo') {
+          setDecoderEngine(mode === 'software' ? 'exo_software' : 'exo_hardware');
+        } else if (engine === 'ijk') {
+          setDecoderEngine(mode === 'software' ? 'ijk_software' : 'ijk_hardware');
+        }
+      },
       onCandidateChange: next => {
         setPlaybackCandidate(next);
         if (next) {
@@ -609,7 +637,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         mediaUrl: stream.mediaUrl || stream.url,
         url: stream.mediaUrl || stream.url,
         label: stream.label || `线路 ${boundedIndex + 1}`,
-        protocol: stream.protocol || 'HLS/M3U8',
+        protocol: stream.protocol || inferLiveProtocol(stream.mediaUrl || stream.url),
         sourceId: stream.sourceId,
         channelId: activeChannel.channelId,
         kind: 'live',
@@ -623,15 +651,27 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
 
   const handleStartImmersivePlay = async (channelToPlay = activeChannel, streamId = activeStream?.streamId) => {
     if (!channelToPlay) return;
+
     let targetIdx = 0;
     if (streamId && Array.isArray(channelToPlay.streams)) {
       const idx = channelToPlay.streams.findIndex(s => s.streamId === streamId || s.url === streamId);
       if (idx >= 0) targetIdx = idx;
     }
-    if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
-      await loadChannelStreams(channelToPlay);
+
+    const currentChannelId = activeChannel?.channelId || selectedChannelId;
+    const currentStreamIdx = activeStreamIndexRef.current ?? activeStreamIndex ?? 0;
+    const samePlaybackTarget = currentChannelId === channelToPlay.channelId && currentStreamIdx === targetIdx;
+
+    // “沉浸播放”只是同一直播播放器的展示层切换。
+    // 当前频道/线路已经在播放时，禁止再次调用 selectChannel()，
+    // 因为 selectChannel() 会清空 <video>、重置候选并重新连接直播。
+    if (!samePlaybackTarget) {
+      if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
+        await loadChannelStreams(channelToPlay);
+      }
+      selectChannel(channelToPlay, targetIdx);
     }
-    selectChannel(channelToPlay, targetIdx);
+
     setIsImmersive(true);
   };
 
@@ -677,7 +717,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         </div>
       </Header>
 
-      <SangtianPlayerWindow
+      <LivePlayerBlock
         videoRef={videoRef}
         controller={playbackController}
         videoContainerRef={playerWindowBodyRef}
@@ -685,7 +725,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         candidate={activeStream ? {
           label: playbackCandidate?.label || activeStream.label || '默认线路',
           url: playbackCandidate?.mediaUrl || activeStream.url,
-          protocol: playbackCandidate?.protocol || activeStream.protocol || 'HLS/M3U8',
+          protocol: playbackCandidate?.protocol || activeStream.protocol || inferLiveProtocol(activeStream.mediaUrl || activeStream.url),
           sourceId: playbackCandidate?.sourceId || activeStream.sourceId,
           candidateId: playbackCandidate?.candidateId,
         } : (customCandidate ? {
@@ -759,7 +799,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         onChangeDecoderEngine={handleSwitchDecoderEngine}
         isImmersive={isImmersive}
         onToggleImmersive={() => setIsImmersive(v => !v)}
-      />
+      >
+        <video
+          ref={videoRef}
+          playsInline
+          preload="metadata"
+          className="sangtian-video-element"
+        />
+      </LivePlayerBlock>
 
       {activeChannel && (
         <div className="live-current-bar">

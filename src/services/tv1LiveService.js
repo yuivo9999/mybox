@@ -89,7 +89,15 @@ export const tv1LiveService = {
       sourceId: source.sourceId,
       sourceChannelId: source.sourceId + ':' + channelRef.sourceItemId,
       sourceItemId: channelRef.sourceItemId,
-      protocol: /\.m3u8(?:[?#]|$)/i.test(stream.url) ? 'hls' : 'http',
+      protocol: stream.protocol || (() => {
+        const value = String(stream.url || '').trim().toLowerCase();
+        if (/\.m3u8(?:[?#]|$)/i.test(value) || value.includes('/pltv/') || value.includes('/tvod/')) return 'hls';
+        if (value.startsWith('rtmp://')) return 'rtmp';
+        if (value.startsWith('rtsp://')) return 'rtsp';
+        if (/\.flv(?:[?#]|$)/i.test(value)) return 'flv';
+        if (/\.mpd(?:[?#]|$)/i.test(value)) return 'dash';
+        return 'http';
+      })(),
       priority: index,
       status: 'unknown',
       lastCheckedAt: null,

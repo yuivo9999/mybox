@@ -7,11 +7,16 @@ import { usePersistentState } from '../../state/usePersistentState.js';
 import { SangtianTopBar } from '../../components/theme/SangtianTopBar.jsx';
 import { SangtianDrawer } from '../../components/theme/SangtianDrawer.jsx';
 import {
-  SangtianPlayerWindow,
   SangtianFloatingBar,
   SangtianConsoleCard,
 } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { PlaybackPagePlayerBlock } from '../../components/player/PlaybackPagePlayerBlock.jsx';
 import { OtherSourceSearchDialog } from './OtherSourceSearchDialog.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
+
+function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
+}
 
 export function MoviePlaybackPage({
   request,
@@ -37,23 +42,19 @@ export function MoviePlaybackPage({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(settings?.playback?.moviePlayer ?? 'exo');
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = settings?.playback || {};
+    if (playback.moviePlaybackScheme) return getPlaybackScheme(playback.moviePlaybackScheme).id;
+    const engine = playback.moviePlayer || 'ijk';
+    return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
-    let decoderMode = 'hardware';
-    if (typeof engineInput === 'string') {
-      if (engineInput.includes('exo')) {
-        engine = 'exo';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else if (engineInput.includes('ijk')) {
-        engine = 'ijk';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else {
-        engine = engineInput;
-      }
-    }
-    setDecoderEngine(engineInput);
+    const scheme = getPlaybackScheme(engineInput);
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    const normalizedSelection = scheme.id;
+    setDecoderEngine(normalizedSelection);
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = settings?.playback || {};
@@ -62,6 +63,7 @@ export function MoviePlaybackPage({
       playback: {
         ...currentPlayback,
         moviePlayer: engine,
+        moviePlaybackScheme: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
@@ -141,6 +143,14 @@ export function MoviePlaybackPage({
       if (event.event === 'error') setError(event.error || '播放候选失败');
       if (event.event === 'released') setStatus('released');
       if (event.event === 'stopped') setStatus('stopped');
+      if (event.event === 'decoderChanged') {
+        const payload = event?.data ?? event?.decoder ?? {};
+        const engine = String(payload?.engine ?? '').toLowerCase();
+        const mode = String(payload?.mode ?? '').toLowerCase();
+        if (engine === 'exo' || engine === 'ijk') {
+          setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        }
+      }
 
       // VOD Progress Tracking
       if (event.event === 'progress') {
@@ -432,7 +442,7 @@ export function MoviePlaybackPage({
       />
 
       {/* 2. Fully Featured Video Playback Window with unified Controller */}
-      <SangtianPlayerWindow
+      <PlaybackPagePlayerBlock
         videoRef={videoRef}
         controller={controller}
         videoContainerRef={playerWindowBodyRef}
@@ -478,7 +488,7 @@ export function MoviePlaybackPage({
           poster={request?.metadata?.poster || movie?.poster}
           className="sangtian-video-element"
         />
-      </SangtianPlayerWindow>
+      </PlaybackPagePlayerBlock>
 
       {/* 3. Floating Control Bar (VOD Only) */}
       <SangtianFloatingBar

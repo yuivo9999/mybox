@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Hls from 'hls.js';
 import { Heart, Play, Radio, RefreshCw } from 'lucide-react';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
+import { playbackService } from '../../services/playbackService.js';
+import { usePersistentState } from '../../state/usePersistentState.js';
 import { requestManager } from '../../services/requestManager.js';
 import { SmartImage, EmptyState, LoadingState, ErrorState } from '../../components/StateViews.jsx';
-import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { Tv1LivePlayerBlock } from '../../components/player/Tv1LivePlayerBlock.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
+
+function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
+}
 
 export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFavorite, onBack }) {
+  const { saveSettings, settings } = usePersistentState();
   const tv1Sources = useMemo(() => sources.filter(tv1LiveService.isSupportedSource), [sources]);
   const [sourceId, setSourceId] = useState(tv1Sources[0]?.sourceId || '');
   const [channels, setChannels] = useState([]);
@@ -15,7 +22,22 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const [category, setCategory] = useState('全部');
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [streamIndex, setStreamIndex] = useState(0);
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = settings?.playback || {};
+    if (playback.livePlaybackScheme) return getPlaybackScheme(playback.livePlaybackScheme).id;
+    const engine = playback.livePlayer || 'ijk';
+    return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
+  });
+  const [resolvedInput, setResolvedInput] = useState(null);
+  const [playbackError, setPlaybackError] = useState('');
+  const playbackRequest = useMemo(
+    () => activeChannel ? playbackService.createLiveRequest({ channel: activeChannel, preferredSource: activeSource?.sourceId }) : null,
+    [activeChannel, activeSource?.sourceId],
+  );
   const videoRef = useRef(null);
+  const controllerRef = useRef(null);
+  const loadedControllerRef = useRef(null);
+  const loadedCandidateIdRef = useRef('');
 
   useEffect(() => {
     if (!sourceId && tv1Sources.length) setSourceId(tv1Sources[0].sourceId);
@@ -58,25 +80,130 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const categories = useMemo(() => ['全部', ...new Set(channels.map(channel => channel.category).filter(Boolean))], [channels]);
   const visible = useMemo(() => category === '全部' ? channels : channels.filter(channel => channel.category === category), [channels, category]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !activeStream?.url) return;
-    const url = activeStream.url;
-    let hls = null;
-    if (Hls.isSupported() && (activeStream.protocol === 'hls' || /\.m3u8(?:[?#]|$)/i.test(url))) {
-      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
-      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-    } else {
-      video.src = url;
-      video.play().catch(() => {});
+  const handleSwitchDecoderEngine = async (engineInput) => {
+    const scheme = getPlaybackScheme(engineInput);
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    const normalizedSelection = scheme.id;
+    setDecoderEngine(normalizedSelection);
+
+    const currentPlayback = settings?.playback || {};
+    saveSettings({
+      ...settings,
+      playback: {
+        ...currentPlayback,
+        livePlayer: engine,
+        livePlaybackScheme: scheme.id,
+        decoder: {
+          ...(currentPlayback.decoder || {}),
+          [engine]: decoderMode,
+        },
+      },
+    });
+
+    const target = playbackRequest?.candidates?.[streamIndex] || playbackRequest?.candidates?.[0];
+    if (target && controllerRef.current) {
+      setStatus('loading');
+      setPlaybackError('');
+      const hinted = {
+        ...target,
+        playerHint: {
+          ...(target.playerHint || {}),
+          engine,
+          decoder: decoderMode,
+        },
+      };
+      controllerRef.current.resolveAndLoad(hinted).catch(reason => {
+        setPlaybackError(reason?.message || '切换解码内核失败');
+      });
     }
+  };
+
+  const playbackController = useMemo(() => {
+    if (!playbackRequest) return null;
+    return playbackService.createController(playbackRequest, {
+      onStateChange: nextState => setStatus(nextState),
+      onEvent: event => {
+        if (event?.event !== 'decoderChanged') return;
+        const payload = event?.data ?? event?.decoder ?? {};
+        const engine = String(payload?.engine ?? '').toLowerCase();
+        const mode = String(payload?.mode ?? '').toLowerCase();
+        if (engine === 'exo' || engine === 'ijk') {
+          setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        }
+      },
+      onResolvedInput: setResolvedInput,
+      onPlayerError: ({ error: reason }) => setPlaybackError(reason?.message || '播放器加载失败'),
+      onExhausted: () => setStatus('error'),
+    });
+  }, [playbackRequest]);
+
+  controllerRef.current = playbackController;
+
+  useEffect(() => {
+    if (!playbackController || !playbackRequest) return undefined;
+    let active = true;
+    const player = playbackController.attachPlayer(videoRef.current);
+    if (!player) {
+      setStatus('error');
+      setPlaybackError('Native 播放器不可用');
+      return undefined;
+    }
+
+    const target = playbackRequest.candidates?.[streamIndex] || playbackRequest.candidates?.[0];
+    loadedControllerRef.current = playbackController;
+    loadedCandidateIdRef.current = target?.candidateId || '';
+    const initial = playbackController.start();
+
+    if (!initial) {
+      setStatus('error');
+      setPlaybackError('没有可用的 TV1 播放线路');
+    } else if (target && target.candidateId !== initial.candidateId) {
+      setStatus('loading');
+      setPlaybackError('');
+      // switchCandidate already performs the controller-side load; do not call
+      // resolveAndLoad a second time or the same TV1 stream would connect twice.
+      playbackController.switchCandidate(target.candidateId);
+    } else {
+      setStatus('loading');
+      setPlaybackError('');
+      playbackController.resolveAndLoad(initial).catch(reason => {
+        if (active) setPlaybackError(reason?.message || 'TV1 播放初始化失败');
+      });
+    }
+
     return () => {
-      if (hls) { try { hls.destroy(); } catch {} }
-      else { video.removeAttribute('src'); video.load(); }
+      active = false;
+      try { playbackController.leave(); } catch {}
+      setResolvedInput(null);
     };
-  }, [activeStream?.url]);
+  }, [playbackController]);
+
+  useEffect(() => {
+    if (!playbackController || !playbackRequest) return undefined;
+    if (loadedControllerRef.current !== playbackController) {
+      loadedControllerRef.current = playbackController;
+      loadedCandidateIdRef.current = '';
+      return undefined;
+    }
+
+    const target = playbackRequest.candidates?.[streamIndex] || playbackRequest.candidates?.[0];
+    if (!target || target.candidateId === loadedCandidateIdRef.current) return undefined;
+
+    loadedCandidateIdRef.current = target.candidateId;
+    setPlaybackError('');
+    playbackController.switchCandidate(target.candidateId);
+    return undefined;
+  }, [streamIndex, playbackController, playbackRequest]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') playbackController?.handleAppState('background');
+      else playbackController?.handleAppState('foreground');
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [playbackController]);
 
   if (!tv1Sources.length) return <Page><Header title="TV1 直播"/><EmptyState text="暂无 TV1 专用直播源。请在源管理中添加 #genre# TXT，并选择 TV1 专用模式。"/><BackButton onBack={onBack}/></Page>;
   if (status === 'loading') return <Page><Header title="TV1 直播"/><LoadingState text="正在加载 TV1 直播源…"/></Page>;
@@ -92,11 +219,11 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
         <button className="secondary" onClick={load}><RefreshCw size={15}/>刷新</button>
       </div>
       {activeChannel && <>
-        <SangtianPlayerWindow 
+        <Tv1LivePlayerBlock 
           videoRef={videoRef} 
-          status={activeStream ? 'playing' : 'idle'} 
+          status={status} 
           isLive 
-          candidate={{ label: activeStream?.label || '默认线路', url: activeStream?.url, protocol: activeStream?.protocol || 'HLS/M3U8', sourceId: activeSource?.sourceId, candidateId: activeStream?.streamId }} 
+          candidate={{ label: activeStream?.label || '默认线路', url: activeStream?.url, mediaUrl: activeStream?.url, protocol: activeStream?.protocol || 'HLS/M3U8', sourceId: activeSource?.sourceId, candidateId: activeStream?.streamId }} 
           candidates={activeChannel.streams.map((stream, idx) => ({
             candidateId: stream.streamId || `stream-${idx}`,
             label: stream.label || `线路 ${idx + 1}`,
@@ -108,7 +235,10 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
           activeChannel={activeChannel}
           activeStreamIndex={streamIndex}
           onSelectChannel={chan => { setSelectedChannelId(chan.channelId); setStreamIndex(0); }}
-          onSwitchStreamIndex={setStreamIndex}
+          onSwitchStreamIndex={index => {
+            const nextIndex = Math.max(0, Number(index) || 0);
+            setStreamIndex(nextIndex);
+          }}
           onSelectCandidate={id => {
             const idx = activeChannel.streams.findIndex((s, i) => s.streamId === id || `stream-${i}` === id || s.url === id);
             if (idx >= 0) setStreamIndex(idx);
@@ -123,16 +253,18 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
             }
           }}
           terminalTag={`TV1 · ${activeChannel.name}`}
+          resolvedInput={resolvedInput}
+          error={playbackError}
+          controller={playbackController}
+          decoderEngine={decoderEngine}
+          onChangeDecoderEngine={handleSwitchDecoderEngine}
           onStop={() => {
-            if (videoRef.current) {
-              videoRef.current.pause();
-              videoRef.current.removeAttribute('src');
-              videoRef.current.load();
-            }
+            try { playbackController?.stop(); } catch {}
+            setResolvedInput(null);
           }}
         >
           <video ref={videoRef} controls playsInline className="sangtian-video-element"/>
-        </SangtianPlayerWindow>
+        </Tv1LivePlayerBlock>
         <div className="live-current-bar">
           <div className="live-current-info"><span className="live-pill">● TV1 专用</span><b>{activeChannel.name}</b><small>{activeChannel.category} · {activeStream?.label || '线路 1'}</small></div>
           <div className="live-current-actions">
