@@ -7,10 +7,10 @@ import { usePersistentState } from '../../state/usePersistentState.js';
 import { SangtianTopBar } from '../../components/theme/SangtianTopBar.jsx';
 import { SangtianDrawer } from '../../components/theme/SangtianDrawer.jsx';
 import {
-  SangtianPlayerWindow,
   SangtianFloatingBar,
   SangtianConsoleCard,
 } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { PlaybackPagePlayerBlock } from '../../components/player/PlaybackPagePlayerBlock.jsx';
 import { OtherSourceSearchDialog } from './OtherSourceSearchDialog.jsx';
 
 export function MoviePlaybackPage({
@@ -432,7 +432,7 @@ export function MoviePlaybackPage({
       />
 
       {/* 2. Fully Featured Video Playback Window with unified Controller */}
-      <SangtianPlayerWindow
+      <PlaybackPagePlayerBlock
         videoRef={videoRef}
         controller={controller}
         videoContainerRef={playerWindowBodyRef}
@@ -478,7 +478,7 @@ export function MoviePlaybackPage({
           poster={request?.metadata?.poster || movie?.poster}
           className="sangtian-video-element"
         />
-      </SangtianPlayerWindow>
+      </PlaybackPagePlayerBlock>
 
       {/* 3. Floating Control Bar (VOD Only) */}
       <SangtianFloatingBar
