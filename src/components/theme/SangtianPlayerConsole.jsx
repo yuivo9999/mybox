@@ -765,6 +765,19 @@ export function SangtianPlayerWindow({
                   </div>
                 </div>
 
+                {/* 顶部栏下面一行：横屏、铺满、退出 */}
+                <div className="sangtian-fullscreen-subbar-actions" onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 16px', background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <button type="button" className="setting-btn" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={handleToggleLandscape}>
+                    <RotateCw size={13}/><span>{isLandscape ? '竖屏' : '横屏'}</span>
+                  </button>
+                  <button type="button" className="setting-btn" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={handleCycleAspect}>
+                    <Ratio size={13}/><span>{currentAspect.label}</span>
+                  </button>
+                  <button type="button" className="setting-btn" style={{ padding: '4px 10px', fontSize: '12px', background: 'rgba(225,29,72,0.2)', color: '#f43f5e' }} onClick={handleToggleFullscreen}>
+                    <Minimize2 size={13}/><span>退出</span>
+                  </button>
+                </div>
+
                 {/* Left Channel Sidebar for Live */}
                 {isLive && showLeftSidebar && (
                   <div className="sangtian-fullscreen-left-sidebar" onClick={(e) => e.stopPropagation()}>
@@ -934,22 +947,27 @@ export function SangtianPlayerWindow({
                       })()}
 
                       <div className="settings-group">
-                        <label>解码内核 (Decoder Engine)</label>
+                        <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
                         <div className="settings-btn-grid vertical">
                           {[
-                            { id: 'exo', name: 'ExoPlayer (MediaCodec 硬解推荐)' },
-                            { id: 'ijk', name: 'IJKPlayer (FFmpeg 软解兼容)' },
+                            { id: 'exo_hardware', name: 'ExoPlayer 硬解 (MediaCodec)' },
+                            { id: 'exo_software', name: 'ExoPlayer 软解 (Software)' },
+                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
+                            { id: 'ijk_software', name: 'IJKPlayer 软解 (FFmpeg)' },
                             { id: 'native', name: 'Android System Native' },
                             { id: 'html5', name: 'HTML5 Web Engine' },
-                          ].map((engine) => (
-                            <button
-                              key={engine.id}
-                              className={`setting-btn ${decoderEngine === engine.id ? 'active' : ''}`}
-                              onClick={() => onChangeDecoderEngine?.(engine.id)}
-                            >
-                              {engine.name}
-                            </button>
-                          ))}
+                          ].map((engine) => {
+                            const isActive = decoderEngine === engine.id || (decoderEngine === 'exo' && engine.id.includes('exo')) || (decoderEngine === 'ijk' && engine.id.includes('ijk'));
+                            return (
+                              <button
+                                key={engine.id}
+                                className={`setting-btn ${isActive ? 'active' : ''}`}
+                                onClick={() => onChangeDecoderEngine?.(engine.id)}
+                              >
+                                {engine.name}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -1191,6 +1209,8 @@ export function SangtianConsoleCard({
   onSearchSameName,
   sourceName = '',
   actors = [],
+  director = '',
+  writer = '',
 }) {
   const [activeTab, setActiveTab] = useState('info'); // Default to 'info' (简介)
   const [copiedLink, setCopiedLink] = useState(false);
@@ -1306,40 +1326,31 @@ export function SangtianConsoleCard({
               <h4>{title}</h4>
             </div>
 
-            {/* 演职人员表 (置于当前流直链上方) */}
-            {!isLive && actorsArr.length > 0 && (
-              <div className="console-cast-section-episodes" style={{ marginBottom: '14px', padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                {mainActors.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', lineHeight: '2' }}>
-                    <span style={{ fontSize: '13px', color: '#8f98aa', fontWeight: 'bold' }}>⭐ 主演：</span>
-                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {mainActors.map((actor, aIdx) => (
-                        <React.Fragment key={actor}>
-                          <span
-                            style={{
-                              fontSize: '18px',
-                              fontWeight: '900',
-                              letterSpacing: '0.2em',
-                              color: '#f59e0b', // Theme gold/amber
-                              textShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                            }}
-                          >
-                            {actor}
-                          </span>
-                          {aIdx < mainActors.length - 1 && (
-                            <span style={{ color: 'rgba(255, 255, 255, 0.2)', margin: '0 16px', fontSize: '14px', fontWeight: 'normal' }}>|</span>
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </span>
-                  </div>
-                )}
-                {otherActors.length > 0 && (
-                  <div style={{ fontSize: '12px', color: '#aeb5c3', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
-                    <span style={{ color: '#8f98aa' }}>参演：</span>
-                    <span>{otherActors.join('  ·  ')}</span>
-                  </div>
-                )}
+            {/* 选集里面只要出现主演（去除阴影，加上1px的黑色描边），不要其他出演人员名字，居中，无“主演：”前缀 */}
+            {!isLive && mainActors.length > 0 && (
+              <div className="console-cast-section-episodes" style={{ marginBottom: '14px', padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+                {mainActors.map(actor => (
+                  <span
+                    key={actor}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(217, 119, 6, 0.15)',
+                      border: '1px solid rgba(217, 119, 6, 0.35)',
+                      color: '#f59e0b',
+                      fontWeight: '800',
+                      fontSize: '15px',
+                      letterSpacing: '0.12em',
+                      textShadow: 'none',
+                      WebkitTextStroke: '1px #000',
+                      boxShadow: '0 2px 5px rgba(0,0,0,0.25)',
+                    }}
+                  >
+                    {actor}
+                  </span>
+                ))}
               </div>
             )}
 

@@ -39,8 +39,21 @@ export function MoviePlaybackPage({
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(settings?.playback?.moviePlayer ?? 'exo');
 
-  const handleSwitchDecoderEngine = async (engineId) => {
-    setDecoderEngine(engineId);
+  const handleSwitchDecoderEngine = async (engineInput) => {
+    let engine = 'exo';
+    let decoderMode = 'hardware';
+    if (typeof engineInput === 'string') {
+      if (engineInput.includes('exo')) {
+        engine = 'exo';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else if (engineInput.includes('ijk')) {
+        engine = 'ijk';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else {
+        engine = engineInput;
+      }
+    }
+    setDecoderEngine(engineInput);
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = settings?.playback || {};
@@ -48,16 +61,28 @@ export function MoviePlaybackPage({
       ...settings,
       playback: {
         ...currentPlayback,
-        moviePlayer: engineId,
+        moviePlayer: engine,
+        decoder: {
+          ...(currentPlayback.decoder || {}),
+          [engine]: decoderMode,
+        }
       }
     });
 
-    // 2. 立即重新以新的解码内核载入并播放
+    // 2. 立即重新以新的解码内核与硬/软解模式载入并播放
     const retry = candidate || controller.start();
     if (retry) {
       setResolvedInput(null);
       setError('');
-      controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
+      const hintCand = {
+        ...retry,
+        playerHint: {
+          ...(retry.playerHint || {}),
+          engine,
+          decoder: decoderMode,
+        }
+      };
+      controller.resolveAndLoad(hintCand).catch(e => setError(e?.message || '重新加载失败'));
     }
   };
   const [playbackTime, setPlaybackTime] = useState(0);
@@ -369,6 +394,8 @@ export function MoviePlaybackPage({
   const currentSourceItem = sources.find(s => s.sourceId === source);
   const sourceName = currentSourceItem?.name || candidate?.metadata?.sourceName || '当前源';
   const actors = movie?.actors || movie?.actorsList || request?.metadata?.movie?.actors || [];
+  const director = movie?.director || request?.metadata?.director || movie?.directorName || '';
+  const writer = movie?.writer || request?.metadata?.writer || movie?.writerName || '';
 
   return (
     <div className="player-page theme-sangtian-layout">
@@ -492,6 +519,8 @@ export function MoviePlaybackPage({
         onSearchSameName={() => setOtherSourceSearchOpen(true)}
         sourceName={sourceName}
         actors={actors}
+        director={director}
+        writer={writer}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {

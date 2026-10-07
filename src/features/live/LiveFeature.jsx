@@ -83,27 +83,52 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     globalLiveCache.decoderEngine ?? persistent.settings?.playback?.livePlayer ?? 'exo'
   );
 
-  const handleSwitchDecoderEngine = async (engineId) => {
-    setDecoderEngine(engineId);
-    globalLiveCache.decoderEngine = engineId;
+  const handleSwitchDecoderEngine = async (engineInput) => {
+    let engine = 'exo';
+    let decoderMode = 'hardware';
+    if (typeof engineInput === 'string') {
+      if (engineInput.includes('exo')) {
+        engine = 'exo';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else if (engineInput.includes('ijk')) {
+        engine = 'ijk';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else {
+        engine = engineInput;
+      }
+    }
+    setDecoderEngine(engineInput);
+    globalLiveCache.decoderEngine = engineInput;
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = persistent.settings?.playback || {};
     persistent.updateSettings({
       playback: {
         ...currentPlayback,
-        livePlayer: engineId,
+        livePlayer: engine,
+        decoder: {
+          ...(currentPlayback.decoder || {}),
+          [engine]: decoderMode,
+        }
       }
     });
 
-    // 2. 马上以新解码内核重新载入并播放当前流
+    // 2. 马上以新解码内核与硬/软解模式重新载入并播放当前流
     const activeReq = livePlaybackRequestRef.current;
     const currentStreamIdx = activeStreamIndexRef.current || 0;
     const cand = playbackCandidate || (activeReq?.candidates?.[currentStreamIdx]);
     if (cand && playbackControllerRef.current) {
       setPlaybackStatus('loading');
       setPlaybackError('');
-      playbackControllerRef.current.resolveAndLoad(cand, { forceRefresh: true }).catch(err => {
+      const hintCand = {
+        ...cand,
+        playerHint: {
+          ...(cand.playerHint || {}),
+          engine,
+          decoder: decoderMode,
+        }
+      };
+      playbackControllerRef.current.resolveAndLoad(hintCand, { forceRefresh: true }).catch(err => {
         setPlaybackError(err?.message || '切换解码内核失败');
       });
     }
@@ -291,11 +316,19 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     [allChannels, selectedChannelId],
   );
   const activeChannel = useMemo(() => {
+    if (customCandidate) {
+      return {
+        channelId: customCandidate.candidateId,
+        name: customCandidate.label || '自定义直播',
+        streams: [customCandidate],
+        category: '自定义',
+      };
+    }
     if (!activeChannelBase) return null;
     const lazy = resolvedStreams[activeChannelBase.channelId];
     const lazyStreams = Array.isArray(lazy) ? lazy : lazy?.streams;
     return lazyStreams ? { ...activeChannelBase, streams: lazyStreams } : activeChannelBase;
-  }, [activeChannelBase, resolvedStreams]);
+  }, [activeChannelBase, resolvedStreams, customCandidate]);
 
   const activeStream = activeChannel?.streams?.[activeStreamIndex] || activeChannel?.streams?.[0] || null;
   const [currentEPG, setCurrentEPG] = useState(null);

@@ -579,6 +579,27 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
 
  const [queryInput,setQueryInput]=useState('');
 
+ const [draftFilters, setDraftFilters] = useState({
+   startYear: state.filters?.startYear || '',
+   endYear: state.filters?.endYear || '',
+   regions: state.filters?.regions || '',
+   types: state.filters?.types || '',
+ });
+ const [appliedFilters, setAppliedFilters] = useState({
+   startYear: state.filters?.startYear || '',
+   endYear: state.filters?.endYear || '',
+   regions: state.filters?.regions || '',
+   types: state.filters?.types || '',
+ });
+
+ const handleConfirmFilter = () => {
+   setAppliedFilters({ ...draftFilters });
+   setState({
+     page: 1,
+     filters: { ...draftFilters },
+   });
+ };
+
  const submitSearch=()=>{
   const keyword=String(queryInput||'').trim();
   if(!keyword)return;
@@ -592,13 +613,41 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
 
  const filteredMovies = useMemo(() => {
    let list = isAll ? movies : moviesForCategory(movies, activeCategory);
-   // Apply local secondary filters
-   if (state.filters?.year && state.filters.year !== '全部') {
-     list = list.filter(m => String(m.year || '') === String(state.filters.year));
+   const filters = appliedFilters || {};
+   
+   // 1. Year range (区间年份)
+   if (filters.startYear || filters.endYear) {
+     const start = Number(filters.startYear) || -Infinity;
+     const end = Number(filters.endYear) || Infinity;
+     list = list.filter(m => {
+       const y = Number(m.year);
+       if (!Number.isFinite(y)) return true;
+       return y >= start && y <= end;
+     });
    }
-   if (state.filters?.region && state.filters.region !== '全部') {
-     list = list.filter(m => String(m.region || '').includes(String(state.filters.region)));
+
+   // 2. Region (全部地区 - 默认几个和用户自定义填写一个或多个)
+   if (filters.regions && String(filters.regions).trim()) {
+     const regionQueries = String(filters.regions).split(/[,，\s]+/).map(r => r.trim()).filter(Boolean);
+     if (regionQueries.length > 0 && !regionQueries.includes('全部')) {
+       list = list.filter(m => {
+         const rText = String(m.region || '');
+         return regionQueries.some(q => rText.includes(q));
+       });
+     }
    }
+
+   // 3. Movie Type (全部影片类型 - 默认几个和用户自定义填写一个或多个)
+   if (filters.types && String(filters.types).trim()) {
+     const typeQueries = String(filters.types).split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
+     if (typeQueries.length > 0 && !typeQueries.includes('全部')) {
+       list = list.filter(m => {
+         const tText = String(m.type || m.category || '');
+         return typeQueries.some(q => tText.includes(q));
+       });
+     }
+   }
+
    if (state.sort === 'latest') {
      list = [...list].sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
    } else if (state.sort === 'popular') {
@@ -607,7 +656,7 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
      list = [...list].sort((a,b) => (a.title || '').localeCompare(b.title || '', 'zh'));
    }
    return list;
- }, [movies, isAll, activeCategory, state.filters, state.sort]);
+ }, [movies, isAll, activeCategory, appliedFilters, state.sort]);
 
  const pageSize = Math.max(1, state.pageSize || 40);
  const currentPage = Math.max(1, state.page || 1);
@@ -672,16 +721,63 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
 
   {movieCategoryLoading && <div className="empty compact"><span>正在从影视源加载“{activeCategory?.name||state.category||'当前分类'}”…</span></div>}
 
-  <div className="catalog-filter-bar">
+  <div className="catalog-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
     <select className="catalog-filter-select" value={state.sort || 'default'} onChange={e => { setState({ sort: e.target.value, page: 1 }); }}>
       {[['default','默认排序'],['latest','最新更新'],['popular','热门排行'],['title','片名排序']].map(([v,l])=><option value={v} key={v}>{l}</option>)}
     </select>
-    <select className="catalog-filter-select" value={state.filters.year || '全部'} onChange={e => { setState({ filters: { ...state.filters, year: e.target.value === '全部' ? '' : e.target.value }, page: 1 }); }}>
-      {['全部','2026','2025','2024','2023','2022','2021','2020','2019'].map(x => <option key={x} value={x}>{x === '全部' ? '全部年份' : x + '年'}</option>)}
-    </select>
-    <select className="catalog-filter-select" value={state.filters.region || '全部'} onChange={e => { setState({ filters: { ...state.filters, region: e.target.value === '全部' ? '' : e.target.value }, page: 1 }); }}>
-      {['全部','内地','香港','台湾','韩国','日本','欧美'].map(x => <option key={x} value={x}>{x === '全部' ? '全部地区' : x}</option>)}
-    </select>
+
+    {/* 全部年份区间 */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#151923', border: '1px solid #242a39', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', color: '#c9d2e1' }}>
+      <span>年份区间:</span>
+      <input
+        type="number"
+        placeholder="开始"
+        value={draftFilters.startYear}
+        onChange={e => setDraftFilters({ ...draftFilters, startYear: e.target.value })}
+        style={{ width: '52px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+      />
+      <span>~</span>
+      <input
+        type="number"
+        placeholder="结束"
+        value={draftFilters.endYear}
+        onChange={e => setDraftFilters({ ...draftFilters, endYear: e.target.value })}
+        style={{ width: '52px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+      />
+    </div>
+
+    {/* 全部地区 */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#151923', border: '1px solid #242a39', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', color: '#c9d2e1' }}>
+      <span>地区:</span>
+      <input
+        type="text"
+        placeholder="全部地区/自定"
+        value={draftFilters.regions}
+        onChange={e => setDraftFilters({ ...draftFilters, regions: e.target.value })}
+        style={{ width: '95px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+      />
+    </div>
+
+    {/* 全部影片类型 */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#151923', border: '1px solid #242a39', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', color: '#c9d2e1' }}>
+      <span>类型:</span>
+      <input
+        type="text"
+        placeholder="全部类型/自定"
+        value={draftFilters.types}
+        onChange={e => setDraftFilters({ ...draftFilters, types: e.target.value })}
+        style={{ width: '95px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+      />
+    </div>
+
+    {/* 确认筛选按钮 */}
+    <button
+      type="button"
+      style={{ padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', background: '#f59e0b', color: '#111', border: 'none' }}
+      onClick={handleConfirmFilter}
+    >
+      确认筛选
+    </button>
   </div>
 
   {/* 海报墙网格 - 一目了然展示所有抓取内容与角标 */}
