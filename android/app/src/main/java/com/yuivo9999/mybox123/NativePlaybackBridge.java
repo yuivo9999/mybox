@@ -470,20 +470,20 @@ public final class NativePlaybackBridge {
         } else {
             result.add(ENGINE_EXO); result.add(ENGINE_IJK); result.add(ENGINE_NATIVE);
         }
-        if (!fallbackEnabled && !result.isEmpty()) return Collections.singletonList(result.get(0));
         ArrayList<String> unique = new ArrayList<>();
         for (String item : result) {
             if ((ENGINE_EXO.equals(item) || ENGINE_IJK.equals(item) || ENGINE_NATIVE.equals(item)) && !unique.contains(item)) unique.add(item);
         }
 
-        // RTMP/FLV are not supported by the Android Media3 ExoPlayer path used here.
-        // Keep these protocols on IJK so a configured Exo/native preference cannot
-        // accidentally turn an otherwise valid live URL into an unsupported-engine error.
+        // RTMP/FLV are IJK-only in this native playback path. This protocol rule
+        // must take precedence over the generic "fallback disabled" shortcut.
         if (isIJKOnlyProtocol()) {
             unique.clear();
             unique.add(ENGINE_IJK);
             return unique;
         }
+
+        if (!fallbackEnabled && !unique.isEmpty()) return Collections.singletonList(unique.get(0));
 
         // Live playback has a stricter fallback contract: when IJK hardware fails,
         // ExoPlayer must be the immediate next engine. Do not let a user-configured
