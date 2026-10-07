@@ -1,5 +1,26 @@
 import { DEFAULT_FONT_ID } from '../config/fontCatalog.js';
 
+export const PLAYBACK_SCHEMES = Object.freeze([
+  Object.freeze({ id: 'ijk_hardware', label: 'IJKPlayer 硬解', engine: 'ijk', decoder: 'hardware' }),
+  Object.freeze({ id: 'exo_hardware', label: 'ExoPlayer 硬解', engine: 'exo', decoder: 'hardware' }),
+  Object.freeze({ id: 'exo_software', label: 'ExoPlayer 软解', engine: 'exo', decoder: 'software' }),
+  Object.freeze({ id: 'ijk_software', label: 'IJKPlayer 软解', engine: 'ijk', decoder: 'software' }),
+]);
+
+export function getPlaybackSchemeId(engine = 'ijk', decoder = 'hardware') {
+  const normalizedEngine = String(engine || 'ijk').trim().toLowerCase();
+  const normalizedDecoder = String(decoder || 'hardware').trim().toLowerCase();
+  return PLAYBACK_SCHEMES.find(
+    scheme => scheme.engine === normalizedEngine && scheme.decoder === normalizedDecoder,
+  )?.id || 'ijk_hardware';
+}
+
+export function getPlaybackScheme(value = 'ijk_hardware') {
+  return PLAYBACK_SCHEMES.find(scheme => scheme.id === String(value || '').trim())
+    || PLAYBACK_SCHEMES[0];
+}
+
+
 export function createFavoriteId(targetType, targetId) {
   return `favorite:${targetType}:${targetId}`;
 }
@@ -19,9 +40,11 @@ export function createSearchId(keyword) {
 export const defaultPlaybackSettings = () => ({
   moviePlayer: 'ijk',
   livePlayer: 'ijk',
+  moviePlaybackScheme: 'ijk_hardware',
+  livePlaybackScheme: 'ijk_hardware',
   fallbackEnabled: true,
   fallbackOrder: ['ijk', 'exo', 'native'],
-  decoder: { exo: 'auto', ijk: 'hardware', native: 'system' },
+  decoder: { exo: 'hardware', ijk: 'hardware', native: 'system' },
 });
 
 export const defaultSettings = () => ({
@@ -47,11 +70,17 @@ export const normalizePlaybackSettings = (value = {}) => {
     ...input,
     moviePlayer: ['exo', 'ijk', 'native'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk',
     livePlayer: ['exo', 'ijk', 'native'].includes(input.livePlayer) ? input.livePlayer : 'ijk',
+    moviePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.moviePlaybackScheme)
+      ? input.moviePlaybackScheme
+      : getPlaybackSchemeId(input.moviePlayer || 'ijk', ['hardware', 'software'].includes(decoder.movie) ? decoder.movie : decoder.ijk || 'hardware'),
+    livePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.livePlaybackScheme)
+      ? input.livePlaybackScheme
+      : getPlaybackSchemeId(input.livePlayer || 'ijk', ['hardware', 'software'].includes(decoder.live) ? decoder.live : decoder.ijk || 'hardware'),
     fallbackEnabled: input.fallbackEnabled !== false,
     fallbackOrder,
     decoder: {
-      exo: ['auto', 'hardware', 'software'].includes(decoder.exo) ? decoder.exo : 'auto',
-      ijk: ['auto', 'hardware', 'software'].includes(decoder.ijk) ? decoder.ijk : 'hardware',
+      exo: decoder.exo === 'software' ? 'software' : 'hardware',
+      ijk: decoder.ijk === 'software' ? 'software' : 'hardware',
       native: 'system',
     },
   };
