@@ -93,24 +93,38 @@ export async function syncMovieSources(sourceConfigs = [], selectedSourceId = nu
     && source.sourceType === 'movie'
   );
 
-  const targetSource = (selectedSourceId && enabledMovieSources.find(source => source.sourceId === selectedSourceId))
-    || enabledMovieSources[0]
-    || null;
-
-  const selected = targetSource ? [targetSource] : [];
+  const preferredSource = selectedSourceId
+    ? enabledMovieSources.find(source => source.sourceId === selectedSourceId) ?? null
+    : null;
+  const orderedSources = [
+    ...(preferredSource ? [preferredSource] : []),
+    ...enabledMovieSources.filter(source => source.sourceId !== preferredSource?.sourceId),
+  ];
 
   const adapters = [];
   const unsupported = [];
-  selected.forEach(source => {
+  for (const source of orderedSources) {
+    // 已知不可执行的 TVBox 源不能阻塞后面的可运行源。
+    if (source.runtimeSupported === false || source.status === '待适配') {
+      unsupported.push({
+        sourceId: source.sourceId,
+        name: source.name || '',
+        adapterType: source.adapterType || null,
+        sourceCapability: source.sourceCapability || null,
+        error: new Error(source.tvboxUnsupportedReason || 'SOURCE_RUNTIME_UNSUPPORTED'),
+      });
+      continue;
+    }
     try {
-      if (canUseHttpMovieAdapter(source)) {
-        adapters.push(createMovieAdapter({
+      const adapter = canUseHttpMovieAdapter(source)
+        ? createMovieAdapter({
           ...source,
           sourceRef: source.sourceRef || source.url,
-        }));
-      } else {
-        adapters.push(createSourceAdapter(source));
-      }
+        })
+        : createSourceAdapter(source);
+      adapters.push(adapter);
+      // 影视页只建立一个当前源的运行时；选中的源不可用时再回退到下一个。
+      break;
     } catch (error) {
       unsupported.push({
         sourceId: source.sourceId,
@@ -120,7 +134,7 @@ export async function syncMovieSources(sourceConfigs = [], selectedSourceId = nu
         error,
       });
     }
-  });
+  }
 
   adapters.forEach(adapter => movieRegistry.register(adapter));
 

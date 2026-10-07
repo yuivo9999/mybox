@@ -673,19 +673,20 @@ export const sourceConfigService = {
     return sourceRepository.saveAll(validateImportedSources(sources)) || sourceRepository.getAll();
   },
 
-  async parseLocalFile(file) {
-    if (!file || typeof file.text !== 'function') throw new Error('SOURCE_IMPORT_FILE_REQUIRED');
-    const text = await file.text();
-    const trimmed = text.replace(/^\uFEFF/, '').trim();
-    const fileName = String(file.name || 'source').trim();
-    const lowerName = fileName.toLowerCase();
-    const bundleId = createBundleId(fileName, text);
+  async parseText(text, { fileName = 'source' } = {}) {
+    const rawText = String(text ?? '');
+    const trimmed = rawText.replace(/^\uFEFF/, '').trim();
+    if (!trimmed) throw new Error('SOURCE_IMPORT_EMPTY');
+
+    const safeFileName = String(fileName || 'source').trim() || 'source';
+    const lowerName = safeFileName.toLowerCase();
+    const bundleId = createBundleId(safeFileName, rawText);
 
     if (lowerName.endsWith('.txt') || lowerName.endsWith('.m3u') || /#genre#/i.test(trimmed) || /^#EXTM3U/i.test(trimmed)) {
       return [createLocalSource({
-        name: fileName.replace(/\.[^.]+$/, '') || '本地直播源',
+        name: safeFileName.replace(/\.[^.]+$/, '') || '本地直播源',
         sourceType: 'live',
-        text,
+        text: rawText,
         format: lowerName.endsWith('.m3u') || /^#EXTM3U/i.test(trimmed) ? 'm3u' : 'txt',
         liveMode: /#genre#/i.test(trimmed) ? 'tv1' : 'generic',
         bundleId,
@@ -694,7 +695,7 @@ export const sourceConfigService = {
 
     let parsed;
     try {
-      parsed = parseRelaxedJSON(text);
+      parsed = parseRelaxedJSON(rawText);
     } catch (error) {
       throw new Error(`SOURCE_IMPORT_JSON_INVALID:${error?.message || 'parse failed'}`);
     }
@@ -704,15 +705,21 @@ export const sourceConfigService = {
 
     if (Array.isArray(parsed)) {
       return [createLocalSource({
-        name: fileName.replace(/\.[^.]+$/, '') || '本地影视源',
+        name: safeFileName.replace(/\.[^.]+$/, '') || '本地影视源',
         sourceType: 'movie',
-        text,
+        text: rawText,
         format: 'json',
         bundleId,
       })];
     }
 
     throw new Error('SOURCE_IMPORT_TVBOX_EMPTY');
+  },
+
+  async parseLocalFile(file) {
+    if (!file || typeof file.text !== 'function') throw new Error('SOURCE_IMPORT_FILE_REQUIRED');
+    const text = await file.text();
+    return this.parseText(text, { fileName: file.name || 'source' });
   },
 
   async importFile(file) {
