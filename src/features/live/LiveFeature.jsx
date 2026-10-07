@@ -5,6 +5,7 @@ import { playbackService } from '../../services/playbackService.js';
 import { requestManager } from '../../services/requestManager.js';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
+import { usePersistentState } from '../../state/usePersistentState.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
 import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
 
@@ -16,7 +17,16 @@ export function createLiveFeature({ channels = [] } = {}) {
     async getEPG(channel, range) { return liveService.getEPG(channel, range); },
   };
 }
-
+function inferLiveProtocol(url) {
+  const value = String(url ?? '').trim().toLowerCase();
+  if (/\.m3u8(?:[?#]|$)/i.test(value) || value.includes('/pltv/') || value.includes('/tvod/')) return 'hls';
+  if (value.startsWith('rtmp://')) return 'rtmp';
+  if (value.startsWith('rtsp://')) return 'rtsp';
+  if (/\.flv(?:[?#]|$)/i.test(value)) return 'flv';
+  if (/\.mpd(?:[?#]|$)/i.test(value)) return 'dash';
+  if (value.startsWith('http://') || value.startsWith('https://')) return 'http';
+  return '';
+}
 
 export async function resolveLiveChannelStreams(channel, { sources = [], signal, forceRefresh = false } = {}) {
   if (!channel) return [];
@@ -62,12 +72,13 @@ export const globalLiveCache = {
   selectedCategory: '全部',
   resolvedStreams: {},
   activeStreamIndex: 0,
-  decoderEngine: 'exo',
+  decoderEngine: null,
   isImmersive: false,
 };
 
 export function LiveFeature({ channels = [], sources = [], favorites = [], onChannel, onPlay, onTab, toggleFavorite }) {
   const page = usePageState();
+  const persistent = usePersistentState();
   const videoRef = useRef(null);
   const playerWindowBodyRef = useRef(null);
   const [selectedChannelId, setSelectedChannelId] = useState(globalLiveCache.selectedChannelId);
@@ -174,14 +185,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setSelectedChannelId('');
     setActiveStreamIndex(0);
 
-    const isHls = /\.m3u8(?:[?#]|$)/i.test(trimmed) || trimmed.toLowerCase().includes('/pltv/') || trimmed.toLowerCase().includes('/tvod/');
+    const protocol = inferLiveProtocol(trimmed);
 
     const cand = {
       candidateId: 'custom-live-stream-' + Date.now(),
       mediaUrl: trimmed,
       url: trimmed,
       label: '自定义直播',
-      protocol: isHls ? 'HLS/M3U8' : 'HTTP/MP4',
+      protocol,
       sourceId: 'custom',
       kind: 'live',
     };
@@ -609,7 +620,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         mediaUrl: stream.mediaUrl || stream.url,
         url: stream.mediaUrl || stream.url,
         label: stream.label || `线路 ${boundedIndex + 1}`,
-        protocol: stream.protocol || 'HLS/M3U8',
+        protocol: stream.protocol || inferLiveProtocol(stream.mediaUrl || stream.url),
         sourceId: stream.sourceId,
         channelId: activeChannel.channelId,
         kind: 'live',
@@ -685,7 +696,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         candidate={activeStream ? {
           label: playbackCandidate?.label || activeStream.label || '默认线路',
           url: playbackCandidate?.mediaUrl || activeStream.url,
-          protocol: playbackCandidate?.protocol || activeStream.protocol || 'HLS/M3U8',
+          protocol: playbackCandidate?.protocol || activeStream.protocol || inferLiveProtocol(activeStream.mediaUrl || activeStream.url),
           sourceId: playbackCandidate?.sourceId || activeStream.sourceId,
           candidateId: playbackCandidate?.candidateId,
         } : (customCandidate ? {
@@ -759,7 +770,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         onChangeDecoderEngine={handleSwitchDecoderEngine}
         isImmersive={isImmersive}
         onToggleImmersive={() => setIsImmersive(v => !v)}
-      />
+      >
+        <video
+          ref={videoRef}
+          playsInline
+          preload="metadata"
+          className="sangtian-video-element"
+        />
+      </SangtianPlayerWindow>
 
       {activeChannel && (
         <div className="live-current-bar">
