@@ -38,6 +38,8 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   );
   const videoRef = useRef(null);
   const controllerRef = useRef(null);
+  const loadedControllerRef = useRef(null);
+  const loadedCandidateIdRef = useRef('');
 
   useEffect(() => {
     if (!sourceId && tv1Sources.length) setSourceId(tv1Sources[0].sourceId);
@@ -161,6 +163,8 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
     }
 
     const target = playbackRequest.candidates?.[streamIndex] || playbackRequest.candidates?.[0];
+    loadedControllerRef.current = playbackController;
+    loadedCandidateIdRef.current = target?.candidateId || '';
     const initial = playbackController.start();
 
     if (!initial) {
@@ -188,9 +192,17 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   }, [playbackController]);
 
   useEffect(() => {
-    if (!playbackController || !playbackRequest || streamIndex <= 0) return undefined;
-    const target = playbackRequest.candidates?.[streamIndex];
-    if (!target) return undefined;
+    if (!playbackController || !playbackRequest) return undefined;
+    if (loadedControllerRef.current !== playbackController) {
+      loadedControllerRef.current = playbackController;
+      loadedCandidateIdRef.current = '';
+      return undefined;
+    }
+
+    const target = playbackRequest.candidates?.[streamIndex] || playbackRequest.candidates?.[0];
+    if (!target || target.candidateId === loadedCandidateIdRef.current) return undefined;
+
+    loadedCandidateIdRef.current = target.candidateId;
     setPlaybackError('');
     playbackController.switchCandidate(target.candidateId);
     return undefined;
