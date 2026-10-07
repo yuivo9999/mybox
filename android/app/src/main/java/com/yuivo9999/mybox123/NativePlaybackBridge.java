@@ -887,6 +887,7 @@ public final class NativePlaybackBridge {
                 && !livePlayback
                 && fallbackEnabled) {
             lastPositionMs = currentPositionMs();
+            playbackGeneration += 1L;
             releaseCurrentEngine();
             decoderMode = "software";
             prepared = false;
