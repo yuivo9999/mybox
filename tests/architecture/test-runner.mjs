@@ -81,6 +81,28 @@ expect('src/state/persistentStateStore.js', [/updateSettings/]);
 expect('src/pages/MainPage.jsx', [/自动继续播放/, /默认影视线路/, /默认直播线路/, /主题/, /字体/, /卡片显示/, /显示密度/, /SettingMenu/, /onUpdateSettings/]);
 expect('src/app/App.jsx', [/persistent\.settings/, /defaultMovieSource/, /defaultLiveSource/, /autoplayResume/, /onUpdateSettings/]);
 expect('src/services/playbackService.js', [/preferredSource/, /getVODCandidates/, /createVODRequest/, /createLiveRequest/]);
+expect('src/models/userData.js', [
+  /PLAYBACK_SCHEMES/,
+  /ijk_hardware/,
+  /exo_hardware/,
+  /exo_software/,
+  /ijk_software/,
+  /moviePlaybackScheme: 'ijk_hardware'/,
+  /livePlaybackScheme: 'ijk_hardware'/,
+]);
+expect('src/components/theme/SangtianPlayerConsole.jsx', [
+  /decoderEngine = 'ijk_hardware'/,
+  /id: 'ijk_hardware'/,
+  /id: 'exo_hardware'/,
+  /id: 'exo_software'/,
+  /id: 'ijk_software'/,
+]);
+expect('src/services/playbackService.js', [
+  /normalizeCandidatePlayerHint/,
+  /delete next\.engine/,
+  /delete next\.decoder/,
+]);
+
 expect('src/playback/playbackCore.js', [
   /operationEpoch/,
   /isOperationCurrent/,
@@ -121,3 +143,9 @@ assert.notEqual(packageJson.dependencies?.['lucide-react'], 'latest');
 if (args.has('all') || args.size === 0) {
   console.log('Architecture/data-boundary static checks passed.');
 }
+
+expect('android/app/src/main/java/com/yuivo9999/mybox123/NativePlaybackBridge.java', [
+  /String requested = hint == null \? ENGINE_IJK/,
+  /result.add\(ENGINE_IJK\); result.add\(ENGINE_EXO\)/,
+  /decoderMode = hint == null \? "hardware"/,
+]);
