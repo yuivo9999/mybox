@@ -20,6 +20,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
@@ -60,7 +61,9 @@ public final class NativePlaybackBridge {
     // bound for forward/prepared media, not a promise that every network can
     // continuously fill a full 60 seconds.
     private static final int LIVE_BUFFER_MAX_MS = 60_000;
+    private static final int VOD_BUFFER_MAX_MS = 200_000;
     private static final int LIVE_BUFFER_MIN_MS = 15_000;
+    private static final int VOD_BUFFER_MIN_MS = 30_000;
     private static final int LIVE_BUFFER_FOR_PLAYBACK_MS = 1_500;
     private static final int LIVE_BUFFER_AFTER_REBUFFER_MS = 5_000;
 
@@ -82,6 +85,7 @@ public final class NativePlaybackBridge {
     private boolean fallbackEnabled = true;
     private boolean livePlayback = false;
     private int liveBufferMaxMs = LIVE_BUFFER_MAX_MS;
+    private int vodBufferMaxMs = VOD_BUFFER_MAX_MS;
     private List<String> configuredFallbackOrder = Collections.emptyList();
     private String selectedEngine = ENGINE_EXO;
     private String actualExoDecoderName = "";
@@ -178,6 +182,10 @@ public final class NativePlaybackBridge {
                     ? Math.max(15_000, Math.min(LIVE_BUFFER_MAX_MS,
                             (int) Math.round((hint == null ? 60d : hint.optDouble("liveBufferMaxSeconds", 60d)) * 1000d)))
                     : LIVE_BUFFER_MAX_MS;
+            vodBufferMaxMs = !livePlayback
+                    ? Math.max(30_000, Math.min(VOD_BUFFER_MAX_MS,
+                            (int) Math.round((hint == null ? 200d : hint.optDouble("vodBufferMaxSeconds", 200d)) * 1000d)))
+                    : VOD_BUFFER_MAX_MS;
             configuredFallbackOrder = readStringList(hint == null ? null : hint.optJSONArray("fallbackOrder"));
             engineOrder = buildEngineOrder(requested, url, input.optString("protocol", ""));
 
@@ -386,6 +394,7 @@ public final class NativePlaybackBridge {
             state.put("fallbackEnabled", fallbackEnabled);
             state.put("livePlayback", livePlayback);
             state.put("liveBufferMaxMs", liveBufferMaxMs);
+            state.put("vodBufferMaxMs", vodBufferMaxMs);
             state.put("url", url == null ? "" : url);
             state.put("prepared", prepared);
             state.put("wantPlay", wantPlay);
@@ -466,6 +475,10 @@ public final class NativePlaybackBridge {
         return (value.startsWith("http://") || value.startsWith("https://")) ? "http" : "";
     }
 
+    private boolean isHlsProtocol() {
+        return "hls".equals(mediaProtocol);
+    }
+
     private boolean isIJKOnlyProtocol() {
         return "rtmp".equals(mediaProtocol) || "flv".equals(mediaProtocol);
     }
@@ -535,17 +548,22 @@ public final class NativePlaybackBridge {
         ExoPlayer.Builder builder = new ExoPlayer.Builder(activity, renderersFactory)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory));
 
-        if (livePlayback) {
-            DefaultLoadControl liveLoadControl = new DefaultLoadControl.Builder()
-                    .setBufferDurationsMsForStreaming(
-                            LIVE_BUFFER_MIN_MS,
-                            liveBufferMaxMs,
-                            LIVE_BUFFER_FOR_PLAYBACK_MS,
-                            LIVE_BUFFER_AFTER_REBUFFER_MS)
-                    .setPrioritizeTimeOverSizeThresholdsForStreaming(true)
-                    .setBackBuffer(0, false)
-                    .build();
-            builder.setLoadControl(liveLoadControl);
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMsForStreaming(
+                        livePlayback ? LIVE_BUFFER_MIN_MS : VOD_BUFFER_MIN_MS,
+                        livePlayback ? liveBufferMaxMs : vodBufferMaxMs,
+                        livePlayback ? LIVE_BUFFER_FOR_PLAYBACK_MS : 2_500,
+                        livePlayback ? LIVE_BUFFER_AFTER_REBUFFER_MS : 5_000)
+                .setPrioritizeTimeOverSizeThresholdsForStreaming(true)
+                .setBackBuffer(0, false)
+                .build();
+        builder.setLoadControl(loadControl);
+
+        if (!livePlayback && isHlsProtocol()) {
+            // Exact VOD HLS seeking prevents the seek request from being silently
+            // snapped to a nearby keyframe. Media3 still resolves the seek using
+            // the HLS timeline and loads fragments in their natural sequence.
+            builder.setSeekParameters(SeekParameters.EXACT);
         }
 
         exoPlayer = builder.build();
@@ -732,21 +750,28 @@ public final class NativePlaybackBridge {
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 0);
         }
 
-        // Live playback gets the same 60s forward-cache ceiling regardless of
-        // EXO/IJK decoder mode. max_cached_duration is in milliseconds in IJK.
-        // Keep infbuf disabled, otherwise IJK intentionally ignores the duration cap.
-        if (livePlayback) {
+        // Live/VOD cache policy for the FlutterPlayer IJK fork. The fork's
+        // max_cached_duration option follows the player's duration setting
+        // convention, so pass seconds rather than milliseconds.
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "max_cached_duration",
+                livePlayback ? 60 : Math.max(30, vodBufferMaxMs / 1000));
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "infbuf",
+                0);
+        ijkPlayer.setOption(
+                IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                "packet-buffering",
+                1);
+
+        // HLS VOD seeks must be accurate enough to land on the requested timeline
+        // while FFmpeg continues reading the playlist/segments in order.
+        if (!livePlayback && isHlsProtocol()) {
             ijkPlayer.setOption(
                     IjkMediaPlayer.OPT_CATEGORY_PLAYER,
-                    "max_cached_duration",
-                    liveBufferMaxMs);
-            ijkPlayer.setOption(
-                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
-                    "infbuf",
-                    0);
-            ijkPlayer.setOption(
-                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
-                    "packet-buffering",
+                    "enable-accurate-seek",
                     1);
         }
     }
