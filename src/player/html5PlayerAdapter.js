@@ -6,20 +6,15 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
   let state=PlayerState.IDLE,input=null,released=false,buffering=false;
   let hlsInstance=null;
   let hlsRecoveryCount=0;
+  let hlsGeneration=0;
 
-  const cleanupHls = () => {
-    if (hlsInstance) {
-      try {
-        hlsInstance.stopLoad();
-      } catch {}
-      try {
-        hlsInstance.detachMedia();
-      } catch {}
-      try {
-        hlsInstance.destroy();
-      } catch {}
-      hlsInstance = null;
-    }
+  const cleanupHls = (expected = null) => {
+    if (!hlsInstance || (expected && hlsInstance !== expected)) return;
+    const instance = hlsInstance;
+    hlsInstance = null;
+    try { instance.stopLoad(); } catch {}
+    try { instance.detachMedia(); } catch {}
+    try { instance.destroy(); } catch {}
   };
 
   const emit=(event,data={})=>hooks.onEvent?.({event,...data});
@@ -44,6 +39,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
        input=next;
        state=PlayerState.LOADING;
        hlsRecoveryCount=0;
+       hlsGeneration += 1;
        cleanupHls();
        video.pause();
        video.removeAttribute('src');
@@ -73,6 +69,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             Math.min(200, Number(next.playerHint?.vodBufferMaxSeconds ?? 200) || 200)
           );
           let fragBufferedCount = 0;
+          const generation = hlsGeneration;
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: false,
@@ -80,21 +77,32 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             maxBufferLength: isLiveStream ? Math.min(15, liveBufferMaxSeconds) : 30,
             maxMaxBufferLength: isLiveStream ? liveBufferMaxSeconds : vodBufferMaxSeconds,
             maxBufferSize: isLiveStream ? 80 * 1000 * 1000 : 256 * 1000 * 1000,
-            maxBufferHole: isLiveStream ? 0.8 : 0.15,
+            // Keep inter-fragment tolerance small so a live timestamp hole is not
+            // silently bridged as if it were continuous media.
+            maxBufferHole: isLiveStream ? 0.25 : 0.15,
             highBufferWatchdogPeriod: 2,
             nudgeOffset: 0.2,
             nudgeMaxRetry: 5,
+            // Prefer a buffered recovery path over an unconditional jump to live edge.
+            liveSyncMode: 'buffered',
             liveSyncDurationCount: 6,
             liveMaxLatencyDurationCount: 40,
+            // Start from an actual segment boundary; this avoids starting in the
+            // middle of a video/audio segment and then dropping the first media range.
+            startOnSegmentBoundary: true,
+            initialLiveManifestSize: 6,
             fragLoadingTimeOut: 25000,
             manifestLoadingTimeOut: 25000,
           });
           hlsInstance = hls;
+          const isCurrentHls = () => !released && generation === hlsGeneration && hlsInstance === hls;
           hls.attachMedia(video);
           hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            if (!isCurrentHls()) return;
             hls.loadSource(next.url);
           });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (!isCurrentHls()) return;
             hlsRecoveryCount = 0;
             endBuffering();
             state = PlayerState.PREPARING;
@@ -104,6 +112,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             }
           });
           hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            if (!isCurrentHls()) return;
             fragBufferedCount += 1;
             if (isLiveStream) {
               // 逐步缓存至 60 秒：15 -> 30 -> 45 -> 60。
@@ -126,6 +135,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             }
           });
           hls.on(Hls.Events.ERROR, (event, data) => {
+            if (!isCurrentHls()) return;
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
@@ -133,7 +143,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
                     hlsRecoveryCount += 1;
                     hls.startLoad();
                   } else {
-                    cleanupHls();
+                    cleanupHls(hls);
                     state = PlayerState.ERROR;
                     emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_NETWORK_ERROR') });
                   }
@@ -143,13 +153,13 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
                     hlsRecoveryCount += 1;
                     hls.recoverMediaError();
                   } else {
-                    cleanupHls();
+                    cleanupHls(hls);
                     state = PlayerState.ERROR;
                     emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_MEDIA_ERROR') });
                   }
                   break;
                 default:
-                  cleanupHls();
+                  cleanupHls(hls);
                   state = PlayerState.ERROR;
                   emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_ERROR') });
                   break;
@@ -170,12 +180,13 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       if(next.headers&&Object.keys(next.headers).length)emit('requestContextIgnored',{reason:'HTML5_VIDEO_CANNOT_SET_CUSTOM_HEADERS'});
       return input;
     },
-    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');state=PlayerState.PREPARING;video.load();return input;},
+    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');state=PlayerState.PREPARING;if(hlsInstance)return input;video.load();return input;},
     play(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');return video.play()??Promise.resolve();},
     pause(){video.pause();return true;},
     seek(seconds){if(!Number.isFinite(seconds))return false;if(!Number.isFinite(video.duration)&&!video.seekable?.length)return false;video.currentTime=Math.max(0,seconds);return video.currentTime;},
     setPlaybackRate(rate){const r=Number(rate);if(Number.isFinite(r)&&r>0){video.playbackRate=r;}return video.playbackRate;},
     stop(){
+      hlsGeneration += 1;
       cleanupHls();
       try { video.pause(); } catch {}
       try { video.src = ""; } catch {}
@@ -192,7 +203,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
     selectSubtitleTrack(trackId){if(!video.textTracks)return false;for(const t of video.textTracks)t.mode=String(t.id)===String(trackId)?'showing':'disabled';emit('subtitleTrackChanged',{trackId});return true;},
     getQualities(){return input?.manifest?.variants?.map((v,i)=>({qualityId:String(v.attributes?.['VIDEO-RANGE']??v.attributes?.RESOLUTION??i),width:Number(v.attributes?.RESOLUTION?.split('x')?.[0]??0),height:Number(v.attributes?.RESOLUTION?.split('x')?.[1]??0),bitrate:Number(v.attributes?.BANDWIDTH??0),url:v.url}))??[];},
     selectQuality(qualityId){const q=this.getQualities().find(x=>x.qualityId===String(qualityId));if(!q)return false;const wasPlaying=!video.paused;const pos=video.currentTime;video.src=q.url;video.load();if(wasPlaying)void video.play();if(Number.isFinite(pos))try{video.currentTime=pos;}catch{}emit('qualityChanged',{quality:q});return q;},
-    release(){if(released)return;released=true;cleanupHls();unbind();try { video.pause(); } catch {} try { video.src = ""; } catch {} try { video.removeAttribute('src'); } catch {} try { video.load(); } catch {} state=PlayerState.RELEASED;emit('released');},
+    release(){if(released)return;released=true;hlsGeneration += 1;cleanupHls();unbind();try { video.pause(); } catch {} try { video.src = ""; } catch {} try { video.removeAttribute('src'); } catch {} try { video.load(); } catch {} state=PlayerState.RELEASED;emit('released');},
   };
   return createPlayerAdapterContract(adapter);
 }
