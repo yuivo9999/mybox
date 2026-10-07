@@ -24,6 +24,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const [streamIndex, setStreamIndex] = useState(0);
   const [decoderEngine, setDecoderEngine] = useState(() => {
     const playback = settings?.playback || {};
+    if (playback.livePlaybackScheme) return getPlaybackScheme(playback.livePlaybackScheme).id;
     const engine = playback.livePlayer || 'ijk';
     return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
   });
@@ -103,6 +104,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
       playback: {
         ...currentPlayback,
         livePlayer: engine,
+        livePlaybackScheme: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
