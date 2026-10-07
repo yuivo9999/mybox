@@ -416,7 +416,7 @@ export function SangtianPlayerWindowCore({
 
   return (
     <div
-      className={`sangtian-window player-scope-${playerScope} ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
+      className={`sangtian-window player-scope-${playerScope} ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${isSystemFullscreen ? 'is-system-fullscreen' : ''} ${isWebFullscreen ? 'is-web-fullscreen' : ''} ${isImmersive ? 'is-immersive' : ''} aspect-${aspectMode.replace(':','-')}`}
       data-player-scope={playerScope}
       onMouseMove={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
       onTouchStart={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
