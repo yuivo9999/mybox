@@ -64,18 +64,22 @@ export const normalizePlaybackSettings = (value = {}) => {
   const input = value && typeof value === 'object' ? value : {};
   const decoder = input.decoder && typeof input.decoder === 'object' ? input.decoder : {};
   const order = Array.isArray(input.fallbackOrder) ? input.fallbackOrder.filter(item => ['exo', 'ijk', 'native'].includes(item)) : [];
-  const fallbackOrder = [...new Set([...order, 'exo', 'ijk', 'native'])].slice(0, 3);
+  const fallbackOrder = [...new Set([...order, 'ijk', 'exo', 'native'])].slice(0, 3);
+  const moviePlayer = ['exo', 'ijk', 'native'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk';
+  const livePlayer = ['exo', 'ijk', 'native'].includes(input.livePlayer) ? input.livePlayer : 'ijk';
+  const movieDecoder = decoder[moviePlayer] === 'software' ? 'software' : 'hardware';
+  const liveDecoder = decoder[livePlayer] === 'software' ? 'software' : 'hardware';
   return {
     ...defaultPlaybackSettings(),
     ...input,
-    moviePlayer: ['exo', 'ijk', 'native'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk',
-    livePlayer: ['exo', 'ijk', 'native'].includes(input.livePlayer) ? input.livePlayer : 'ijk',
+    moviePlayer,
+    livePlayer,
     moviePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.moviePlaybackScheme)
       ? input.moviePlaybackScheme
-      : getPlaybackSchemeId(input.moviePlayer || 'ijk', ['hardware', 'software'].includes(decoder.movie) ? decoder.movie : decoder.ijk || 'hardware'),
+      : getPlaybackSchemeId(moviePlayer, movieDecoder),
     livePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.livePlaybackScheme)
       ? input.livePlaybackScheme
-      : getPlaybackSchemeId(input.livePlayer || 'ijk', ['hardware', 'software'].includes(decoder.live) ? decoder.live : decoder.ijk || 'hardware'),
+      : getPlaybackSchemeId(livePlayer, liveDecoder),
     fallbackEnabled: input.fallbackEnabled !== false,
     fallbackOrder,
     decoder: {
