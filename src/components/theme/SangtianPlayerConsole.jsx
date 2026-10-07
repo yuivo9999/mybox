@@ -957,7 +957,10 @@ export function SangtianPlayerWindow({
                             { id: 'native', name: 'Android System Native' },
                             { id: 'html5', name: 'HTML5 Web Engine' },
                           ].map((engine) => {
-                            const isActive = decoderEngine === engine.id || (decoderEngine === 'exo' && engine.id.includes('exo')) || (decoderEngine === 'ijk' && engine.id.includes('ijk'));
+                            const effectiveDecoderEngine = decoderEngine === 'exo' || decoderEngine === 'ijk'
+                              ? decoderEngine + '_hardware'
+                              : decoderEngine;
+                            const isActive = effectiveDecoderEngine === engine.id;
                             return (
                               <button
                                 key={engine.id}
