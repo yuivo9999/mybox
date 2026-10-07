@@ -162,19 +162,22 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
 
     const target = playbackRequest.candidates?.[streamIndex] || playbackRequest.candidates?.[0];
     const initial = playbackController.start();
-    const selected = target && initial && target.candidateId !== initial.candidateId
-      ? playbackController.switchCandidate(target.candidateId)
-      : initial;
 
-    if (selected) {
-      setStatus('loading');
-      setPlaybackError('');
-      playbackController.resolveAndLoad(selected).catch(reason => {
-        if (active) setPlaybackError(reason?.message || 'TV1 播放初始化失败');
-      });
-    } else {
+    if (!initial) {
       setStatus('error');
       setPlaybackError('没有可用的 TV1 播放线路');
+    } else if (target && target.candidateId !== initial.candidateId) {
+      setStatus('loading');
+      setPlaybackError('');
+      // switchCandidate already performs the controller-side load; do not call
+      // resolveAndLoad a second time or the same TV1 stream would connect twice.
+      playbackController.switchCandidate(target.candidateId);
+    } else {
+      setStatus('loading');
+      setPlaybackError('');
+      playbackController.resolveAndLoad(initial).catch(reason => {
+        if (active) setPlaybackError(reason?.message || 'TV1 播放初始化失败');
+      });
     }
 
     return () => {
