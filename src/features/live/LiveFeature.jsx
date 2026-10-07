@@ -96,14 +96,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [resolvedStreams, setResolvedStreams] = useState(globalLiveCache.resolvedStreams || {});
   const [streamLoading, setStreamLoading] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = persistent.settings?.playback || {};
+    const persistedScheme = playback.livePlaybackScheme;
+    if (persistedScheme) return getPlaybackScheme(persistedScheme).id;
     if (globalLiveCache.decoderEngine) {
       const cached = globalLiveCache.decoderEngine;
-      if (cached === 'exo' || cached === 'ijk') {
-        return normalizeLiveDecoderSelection(cached, persistent.settings?.playback?.decoder?.[cached] || 'hardware');
-      }
-      return cached;
+      if (cached.includes('_')) return getPlaybackScheme(cached).id;
+      return normalizeLiveDecoderSelection(cached, playback.decoder?.[cached] || 'hardware');
     }
-    const playback = persistent.settings?.playback || {};
     const player = playback.livePlayer || 'ijk';
     return normalizeLiveDecoderSelection(player, playback.decoder?.[player] || 'hardware');
   });
@@ -113,7 +113,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     const engine = scheme.engine;
     const decoderMode = scheme.decoder;
     setDecoderEngine(scheme.id);
-    globalLiveCache.decoderEngine = engineInput;
+    globalLiveCache.decoderEngine = scheme.id;
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = persistent.settings?.playback || {};
@@ -121,6 +121,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       playback: {
         ...currentPlayback,
         livePlayer: engine,
+        livePlaybackScheme: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
