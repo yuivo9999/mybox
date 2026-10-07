@@ -79,7 +79,7 @@ public final class NativePlaybackBridge {
     private String mediaProtocol = "";
     private Map<String, String> headers = Collections.emptyMap();
     private String cookies = "";
-    private String decoderMode = "auto";
+    private String decoderMode = "hardware";
     private Map<String, String> decoderModes = Collections.emptyMap();
     private Map<String, List<IjkOption>> ijkProfiles = Collections.emptyMap();
     private String ijkProfile = "";
@@ -176,8 +176,8 @@ public final class NativePlaybackBridge {
             cookies = input.optString("cookies", "");
 
             JSONObject hint = input.optJSONObject("playerHint");
-            String requested = hint == null ? "" : hint.optString("engine", "");
-            decoderMode = hint == null ? "auto" : hint.optString("decoder", "auto");
+            String requested = hint == null ? ENGINE_IJK : hint.optString("engine", ENGINE_IJK);
+            decoderMode = hint == null ? "hardware" : hint.optString("decoder", "hardware");
             decoderModes = readStringMap(hint == null ? null : hint.optJSONObject("decoderModes"));
             ijkProfiles = readIjkProfiles(hint == null ? null : hint.optJSONObject("ijkProfiles"));
             ijkProfile = hint == null ? "" : hint.optString("ijkProfile", "").trim();
@@ -199,10 +199,15 @@ public final class NativePlaybackBridge {
             // Explicit UI selection wins over persisted per-engine defaults.
             // decoderModes is only the fallback when no decoder was requested for
             // this load.
-            String requestedDecoder = hint == null ? "" : hint.optString("decoder", "").trim().toLowerCase();
-            decoderMode = requestedDecoder.isEmpty()
-                    ? decoderModes.getOrDefault(selectedEngine, decoderMode)
+            String requestedDecoder = hint == null ? "hardware" : hint.optString("decoder", "hardware").trim().toLowerCase();
+            decoderMode = requestedDecoder.isEmpty() || "auto".equals(requestedDecoder)
+                    ? decoderModes.getOrDefault(selectedEngine, "hardware")
                     : requestedDecoder;
+            if (ENGINE_IJK.equals(selectedEngine) && !"software".equals(decoderMode)) {
+                decoderMode = "hardware";
+            } else if (ENGINE_EXO.equals(selectedEngine) && !"software".equals(decoderMode)) {
+                decoderMode = "hardware";
+            }
             prepared = false;
             wantPlay = false;
             releaseCurrentEngine();
@@ -502,7 +507,7 @@ public final class NativePlaybackBridge {
         } else if (ENGINE_NATIVE.equals(normalized)) {
             result.add(ENGINE_NATIVE); result.add(ENGINE_EXO); result.add(ENGINE_IJK);
         } else {
-            result.add(ENGINE_EXO); result.add(ENGINE_IJK); result.add(ENGINE_NATIVE);
+            result.add(ENGINE_IJK); result.add(ENGINE_EXO); result.add(ENGINE_NATIVE);
         }
         ArrayList<String> unique = new ArrayList<>();
         for (String item : result) {
