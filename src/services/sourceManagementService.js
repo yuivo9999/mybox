@@ -23,15 +23,36 @@ export const sourceManagementService = {
     return this.reload();
   },
   async reload(options = {}) {
-    const selected = userDataService.getSnapshot().selectedSources;
-    return syncAllSources({ ...options, movieSourceId: options.movieSourceId ?? selected.movie ?? null });
+    const snapshot = userDataService.getSnapshot();
+    const selected = snapshot.selectedSources ?? {};
+    const settings = snapshot.settings ?? {};
+    return syncAllSources({
+      ...options,
+      movieSourceId: options.movieSourceId ?? selected.movie ?? settings.defaultMovieSource ?? null,
+    });
   },
   async reloadMovieSource(sourceId = null) {
-    const selected = sourceId ?? userDataService.getSnapshot().selectedSources.movie ?? null;
+    const snapshot = userDataService.getSnapshot();
+    const selected = sourceId ?? snapshot.selectedSources?.movie ?? snapshot.settings?.defaultMovieSource ?? null;
     return syncAllSources({ movieSourceId: selected, includeMovie: true, includeLive: false });
   },
   async save(sources) {
     sourceRepository.saveAll(sources);
+    const saved = sourceRepository.getAll();
+    const snapshot = userDataService.getSnapshot();
+    const selected = snapshot.selectedSources ?? {};
+    const settings = snapshot.settings ?? {};
+    for (const type of ['movie', 'live']) {
+      const selectedId = selected[type] ?? null;
+      const defaultKey = type === 'movie' ? 'defaultMovieSource' : 'defaultLiveSource';
+      const defaultId = settings[defaultKey] ?? null;
+      if (selectedId && !saved.some(item => item.sourceType === type && item.sourceId === selectedId && item.enabled !== false)) {
+        userDataService.clearSelectedSource(type, selectedId);
+      }
+      if (defaultId && !saved.some(item => item.sourceType === type && item.sourceId === defaultId && item.enabled !== false)) {
+        userDataService.updateSettings({ [defaultKey]: null });
+      }
+    }
     return this.reload();
   },
   async setEnabled(sourceId, enabled) {
@@ -40,6 +61,10 @@ export const sourceManagementService = {
     if (!source) return this.reload();
     if (!enabled) {
       userDataService.clearSelectedSource(source.sourceType, sourceId);
+      const defaultKey = source.sourceType === 'live' ? 'defaultLiveSource' : 'defaultMovieSource';
+      if (userDataService.getSettings()?.[defaultKey] === sourceId) {
+        userDataService.updateSettings({ [defaultKey]: null });
+      }
       if (source.sourceType === 'live' && source.liveMode === 'tv1') tv1LiveService.clear(sourceId);
     }
     sourceRepository.saveAll(sources.map(item => item.sourceId === sourceId ? { ...item, enabled: Boolean(enabled), isActive: enabled ? item.isActive : false } : item));
@@ -51,6 +76,9 @@ export const sourceManagementService = {
     if (!source) return this.reload();
     const sourceType = source.sourceType || 'movie';
     userDataService.setSelectedSource(sourceType, sourceId);
+    userDataService.updateSettings({
+      [sourceType === 'live' ? 'defaultLiveSource' : 'defaultMovieSource']: sourceId,
+    });
     const now = Date.now();
     sourceRepository.saveAll(sources.map(item => ({
       ...item,
@@ -58,7 +86,7 @@ export const sourceManagementService = {
       enabled: item.sourceId === sourceId ? true : item.enabled,
       lastUsedAt: item.sourceId === sourceId ? now : item.lastUsedAt ?? null,
     })));
-    return sources;
+    return sourceRepository.getAll();
   },
   async remove(sourceId) {
     const sources = sourceRepository.getAll();
@@ -67,6 +95,10 @@ export const sourceManagementService = {
       if (source.sourceType === 'live' && source.liveMode === 'tv1') tv1LiveService.clear(sourceId);
       const selected = userDataService.getSnapshot().selectedSources;
       if (selected[source.sourceType] === sourceId) userDataService.clearSelectedSource(source.sourceType, sourceId);
+      const defaultKey = source.sourceType === 'live' ? 'defaultLiveSource' : 'defaultMovieSource';
+      if (userDataService.getSettings()?.[defaultKey] === sourceId) {
+        userDataService.updateSettings({ [defaultKey]: null });
+      }
     }
     sourceRepository.saveAll(sources.filter(item => item.sourceId !== sourceId));
     return this.reload();
