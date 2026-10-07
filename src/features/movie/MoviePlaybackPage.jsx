@@ -50,19 +50,9 @@ export function MoviePlaybackPage({
 
   const handleSwitchDecoderEngine = async (engineInput) => {
     const scheme = getPlaybackScheme(engineInput);
-    let engine = scheme.engine;
-    let decoderMode = scheme.decoder;
-    if (typeof engineInput === 'string') {
-      if (engineInput.includes('exo')) {
-        engine = 'exo';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else if (engineInput.includes('ijk')) {
-        engine = 'ijk';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else {
-        engine = engineInput;
-      }
-    }
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    const normalizedSelection = scheme.id;
     setDecoderEngine(normalizedSelection);
 
     // 1. 保存设置到持久化 settings 中
