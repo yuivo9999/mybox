@@ -7,7 +7,7 @@ import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
 import { usePersistentState } from '../../state/usePersistentState.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
-import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { LivePlayerBlock } from '../../components/player/LivePlayerBlock.jsx';
 
 export function createLiveFeature({ channels = [] } = {}) {
   return {
@@ -729,7 +729,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         </div>
       </Header>
 
-      <SangtianPlayerWindow
+      <LivePlayerBlock
         videoRef={videoRef}
         controller={playbackController}
         videoContainerRef={playerWindowBodyRef}
@@ -818,7 +818,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           preload="metadata"
           className="sangtian-video-element"
         />
-      </SangtianPlayerWindow>
+      </LivePlayerBlock>
 
       {activeChannel && (
         <div className="live-current-bar">
