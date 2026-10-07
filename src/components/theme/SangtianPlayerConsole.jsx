@@ -11,7 +11,7 @@ export function SangtianPlayerWindowCore({
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
   channels = [], activeChannel = null, activeStreamIndex = 0, onSelectChannel, onSwitchStreamIndex,
-  decoderEngine = 'exo', onChangeDecoderEngine,
+  decoderEngine = 'ijk_hardware', onChangeDecoderEngine,
   isImmersive = false, onToggleImmersive,
   title = '', episodeLabel = '', sourceLabel = '',
   episodes = [], currentEpisodeIndex = 0, onSelectEpisode,
@@ -952,12 +952,10 @@ export function SangtianPlayerWindowCore({
                           <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
                         <div className="settings-btn-grid vertical">
                           {[
+                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
                             { id: 'exo_hardware', name: 'ExoPlayer 硬解 (MediaCodec)' },
                             { id: 'exo_software', name: 'ExoPlayer 软解 (Software)' },
-                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
                             { id: 'ijk_software', name: 'IJKPlayer 软解 (FFmpeg)' },
-                            { id: 'native', name: 'Android System Native' },
-                            { id: 'html5', name: 'HTML5 Web Engine' },
                           ].map((engine) => {
                             const effectiveDecoderEngine = decoderEngine === 'exo' || decoderEngine === 'ijk'
                               ? decoderEngine + '_hardware'
