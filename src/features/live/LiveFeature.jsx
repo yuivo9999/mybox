@@ -368,12 +368,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       onStateChange: setPlaybackStatus,
       onEvent: event => {
         if (event?.event !== 'decoderChanged') return;
-        const decoder = event?.data?.decoder ?? event?.decoder?.decoder ?? '';
-        const engine = event?.data?.engine ?? event?.decoder?.engine ?? '';
+        const payload = event?.data ?? event?.decoder ?? {};
+        const decoder = payload?.decoder ?? '';
+        const engine = payload?.engine ?? '';
+        const mode = String(payload?.mode ?? '').toLowerCase();
         if (engine === 'exo') {
-          setDecoderEngine(String(decoder || '').toLowerCase().includes('software') ? 'exo_software' : 'exo_hardware');
+          setDecoderEngine(mode === 'software' ? 'exo_software' : 'exo_hardware');
         } else if (engine === 'ijk') {
-          setDecoderEngine(String(decoder || '').toLowerCase().includes('ffmpeg') ? 'ijk_software' : 'ijk_hardware');
+          setDecoderEngine(mode === 'software' ? 'ijk_software' : 'ijk_hardware');
         }
       },
       onCandidateChange: next => {
