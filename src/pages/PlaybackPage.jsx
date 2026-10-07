@@ -11,13 +11,10 @@ import {
   SangtianConsoleCard,
 } from '../components/theme/SangtianPlayerConsole.jsx';
 import { PlaybackPagePlayerBlock } from '../components/player/PlaybackPagePlayerBlock.jsx';
+import { getPlaybackScheme } from '../models/userData.js';
 
-function normalizeDecoderSelection(player = 'exo', mode = 'hardware') {
-  const engine = String(player || 'exo').trim().toLowerCase();
-  if (engine === 'exo' || engine === 'ijk') {
-    return engine + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware');
-  }
-  return engine || 'exo';
+function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
 }
 
 function PlaybackView({
@@ -48,12 +45,13 @@ function PlaybackView({
   const [decoderEngine, setDecoderEngine] = useState(() => {
     const playback = settings?.playback || {};
     const engine = isLive ? playback.livePlayer : playback.moviePlayer;
-    return normalizeDecoderSelection(engine || 'exo', playback.decoder?.[engine] || 'hardware');
+    return normalizeDecoderSelection(engine || 'ijk', playback.decoder?.[engine] || 'hardware');
   });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
-    let decoderMode = 'hardware';
+    const scheme = getPlaybackScheme(engineInput);
+    let engine = scheme.engine;
+    let decoderMode = scheme.decoder;
     if (typeof engineInput === 'string') {
       if (engineInput.includes('exo')) {
         engine = 'exo';
