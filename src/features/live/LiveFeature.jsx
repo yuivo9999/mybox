@@ -66,6 +66,14 @@ export async function resolveLiveChannelStreams(channel, { sources = [], signal,
 }
 
 // Global Live State Cache across Tab Navigations
+function normalizeLiveDecoderSelection(player, mode = 'hardware') {
+  const engine = String(player || 'exo').trim().toLowerCase();
+  if (engine === 'exo' || engine === 'ijk') {
+    return engine + '_' + (mode === 'software' ? 'software' : 'hardware');
+  }
+  return engine || 'exo';
+}
+
 export const globalLiveCache = {
   tv1Channels: [],
   selectedChannelId: '',
@@ -90,9 +98,18 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [tv1Error, setTv1Error] = useState(null);
   const [resolvedStreams, setResolvedStreams] = useState(globalLiveCache.resolvedStreams || {});
   const [streamLoading, setStreamLoading] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(
-    globalLiveCache.decoderEngine ?? persistent.settings?.playback?.livePlayer ?? 'exo'
-  );
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    if (globalLiveCache.decoderEngine) {
+      const cached = globalLiveCache.decoderEngine;
+      if (cached === 'exo' || cached === 'ijk') {
+        return normalizeLiveDecoderSelection(cached, persistent.settings?.playback?.decoder?.[cached] || 'hardware');
+      }
+      return cached;
+    }
+    const playback = persistent.settings?.playback || {};
+    const player = playback.livePlayer || 'exo';
+    return normalizeLiveDecoderSelection(player, playback.decoder?.[player] || 'hardware');
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
     let engine = 'exo';
