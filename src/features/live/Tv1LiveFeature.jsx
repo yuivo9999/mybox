@@ -28,6 +28,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
     const engine = playback.livePlayer || 'ijk';
     return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
   });
+  const [isImmersive, setIsImmersive] = useState(false);
   const [resolvedInput, setResolvedInput] = useState(null);
   const [playbackError, setPlaybackError] = useState('');
   const playbackRequest = useMemo(
@@ -258,6 +259,8 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
           controller={playbackController}
           decoderEngine={decoderEngine}
           onChangeDecoderEngine={handleSwitchDecoderEngine}
+          isImmersive={isImmersive}
+          onToggleImmersive={() => setIsImmersive(value => !value)}
           onStop={() => {
             try { playbackController?.stop(); } catch {}
             setResolvedInput(null);
@@ -270,7 +273,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
           <div className="live-current-actions">
             {activeChannel.streams.length > 1 && activeChannel.streams.map((stream, index) => <button key={stream.streamId} className={streamIndex === index ? 'active' : ''} onClick={() => setStreamIndex(index)}>{stream.label || `线路 ${index + 1}`}</button>)}
             <button className="secondary icon-button" onClick={() => toggleFavorite('channel', activeChannel.channelId)}><Heart size={16} fill={favorites.some(item => item.targetType === 'channel' && item.targetId === activeChannel.channelId) ? 'currentColor' : 'none'}/></button>
-            <button className="primary" onClick={() => onPlay?.(activeChannel, activeStream?.streamId)}><Play size={13}/>沉浸播放</button>
+            <button className="primary" onClick={() => setIsImmersive(true)}><Play size={13}/>沉浸播放</button>
           </div>
         </div>
       </>}
