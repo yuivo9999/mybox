@@ -17,6 +17,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
@@ -55,6 +56,14 @@ public final class NativePlaybackBridge {
     private static final String ENGINE_IJK = "ijk";
     private static final String ENGINE_NATIVE = "native";
 
+    // Live streams use a smoothness-first buffer policy. This is an upper
+    // bound for forward/prepared media, not a promise that every network can
+    // continuously fill a full 60 seconds.
+    private static final int LIVE_BUFFER_MAX_MS = 60_000;
+    private static final int LIVE_BUFFER_MIN_MS = 15_000;
+    private static final int LIVE_BUFFER_FOR_PLAYBACK_MS = 1_500;
+    private static final int LIVE_BUFFER_AFTER_REBUFFER_MS = 5_000;
+
     private final MainActivity activity;
     private final WebView webView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -72,6 +81,7 @@ public final class NativePlaybackBridge {
     private String ijkProfile = "";
     private boolean fallbackEnabled = true;
     private boolean livePlayback = false;
+    private int liveBufferMaxMs = LIVE_BUFFER_MAX_MS;
     private List<String> configuredFallbackOrder = Collections.emptyList();
     private String selectedEngine = ENGINE_EXO;
     private String actualExoDecoderName = "";
@@ -164,6 +174,10 @@ public final class NativePlaybackBridge {
             ijkProfile = hint == null ? "" : hint.optString("ijkProfile", "").trim();
             fallbackEnabled = hint == null || hint.optBoolean("fallbackEnabled", true);
             livePlayback = hint != null && hint.optBoolean("live", false);
+            liveBufferMaxMs = livePlayback
+                    ? Math.max(15_000, Math.min(LIVE_BUFFER_MAX_MS,
+                            (int) Math.round((hint == null ? 60d : hint.optDouble("liveBufferMaxSeconds", 60d)) * 1000d)))
+                    : LIVE_BUFFER_MAX_MS;
             configuredFallbackOrder = readStringList(hint == null ? null : hint.optJSONArray("fallbackOrder"));
             engineOrder = buildEngineOrder(requested, url, input.optString("protocol", ""));
 
@@ -370,6 +384,8 @@ public final class NativePlaybackBridge {
             state.put("decoder", actualDecoder());
             state.put("decoderMode", decoderMode);
             state.put("fallbackEnabled", fallbackEnabled);
+            state.put("livePlayback", livePlayback);
+            state.put("liveBufferMaxMs", liveBufferMaxMs);
             state.put("url", url == null ? "" : url);
             state.put("prepared", prepared);
             state.put("wantPlay", wantPlay);
@@ -516,9 +532,23 @@ public final class NativePlaybackBridge {
                 .setEnableDecoderFallback(true)
                 .setMediaCodecSelector(createDecoderSelector());
 
-        exoPlayer = new ExoPlayer.Builder(activity, renderersFactory)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
-                .build();
+        ExoPlayer.Builder builder = new ExoPlayer.Builder(activity, renderersFactory)
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory));
+
+        if (livePlayback) {
+            DefaultLoadControl liveLoadControl = new DefaultLoadControl.Builder()
+                    .setBufferDurationsMsForStreaming(
+                            LIVE_BUFFER_MIN_MS,
+                            liveBufferMaxMs,
+                            LIVE_BUFFER_FOR_PLAYBACK_MS,
+                            LIVE_BUFFER_AFTER_REBUFFER_MS)
+                    .setPrioritizeTimeOverSizeThresholdsForStreaming(true)
+                    .setBackBuffer(0, false)
+                    .build();
+            builder.setLoadControl(liveLoadControl);
+        }
+
+        exoPlayer = builder.build();
 
         exoPlayer.addAnalyticsListener(new AnalyticsListener() {
             @Override public void onVideoDecoderInitialized(
@@ -638,7 +668,8 @@ public final class NativePlaybackBridge {
             new java.util.HashSet<>(java.util.Arrays.asList(
                     "opensles", "overlay-format", "framedrop", "soundtouch",
                     "start-on-prepared", "http-detect-range-support", "fflags",
-                    "skip_loop_filter", "reconnect", "max-buffer-size",
+                    "skip_loop_filter", "reconnect", "max-buffer-size", "max_cached_duration",
+                    "packet-buffering", "infbuf",
                     "enable-accurate-seek", "mediacodec", "mediacodec-auto-rotate",
                     "mediacodec-handle-resolution-change", "mediacodec-hevc",
                     "dns_cache_timeout"
@@ -699,6 +730,24 @@ public final class NativePlaybackBridge {
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1);
         } else if ("software".equals(decoderMode)) {
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 0);
+        }
+
+        // Live playback gets the same 60s forward-cache ceiling regardless of
+        // EXO/IJK decoder mode. max_cached_duration is in milliseconds in IJK.
+        // Keep infbuf disabled, otherwise IJK intentionally ignores the duration cap.
+        if (livePlayback) {
+            ijkPlayer.setOption(
+                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                    "max_cached_duration",
+                    liveBufferMaxMs);
+            ijkPlayer.setOption(
+                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                    "infbuf",
+                    0);
+            ijkPlayer.setOption(
+                    IjkMediaPlayer.OPT_CATEGORY_PLAYER,
+                    "packet-buffering",
+                    1);
         }
     }
 
