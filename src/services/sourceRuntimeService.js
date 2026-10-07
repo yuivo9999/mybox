@@ -4,12 +4,24 @@ import { liveService } from './liveService.js';
 import { sourceRegistryService } from './sourceRegistryService.js';
 import { userDataService } from './userDataService.js';
 import { tv1LiveService } from './tv1LiveService.js';
+import { createSourceAdapter } from '../adapters/sourceAdapterFactory.js';
 
 export async function testSource(source, options = {}) {
   if (!source?.sourceId) throw new Error('SOURCE_ID_REQUIRED');
 
-  if (String(source.sourceCapability || '').startsWith('tvbox-')
-    || String(source.adapterType || '').startsWith('tvbox-')) {
+  const capability = String(source.sourceCapability || '').trim();
+  const adapterType = String(source.adapterType || '').trim();
+  const tvboxKind = String(source.tvboxAdapterKind || '').trim().toLowerCase();
+  const safeExtFormats = new Set(['json-vod', 'remote-json', 'remote-resource', 'inline-json']);
+  const tvboxRuntimeSupported = (
+    capability === 'tvbox-jar'
+    || capability === 'tvbox-http-vod-with-jar'
+    || (capability === 'tvbox-ext' && tvboxKind === 'ext' && safeExtFormats.has(String(source.tvboxExtFormat || '').trim()))
+  );
+
+  // 已经有实际执行器的 JAR / 安全 JSON EXT 源允许进入测试路径；
+  // Drpy/CSP/未知扩展仍保持“待适配”，避免把不存在的运行时误报成网络故障。
+  if ((capability.startsWith('tvbox-') || adapterType.startsWith('tvbox-')) && !tvboxRuntimeSupported) {
     return {
       ok: false,
       sourceId: source.sourceId,
@@ -17,6 +29,19 @@ export async function testSource(source, options = {}) {
       reason: source.tvboxUnsupportedReason || 'TVBox 扩展源当前未适配',
       checkedAt: Date.now(),
     };
+  }
+
+  if (tvboxRuntimeSupported) {
+    try {
+      const adapter = createSourceAdapter(source);
+      if (typeof adapter.healthCheck === 'function') return adapter.healthCheck(options);
+      if (typeof adapter.isRuntimeAvailable === 'function' && adapter.isRuntimeAvailable()) {
+        return { ok: true, sourceId: source.sourceId, status: 'healthy', checkedAt: Date.now(), error: null, runtimeOnly: true };
+      }
+      return { ok: false, sourceId: source.sourceId, status: 'unsupported', reason: 'TVBox 执行运行时不可用', checkedAt: Date.now() };
+    } catch (error) {
+      return { ok: false, sourceId: source.sourceId, status: 'error', error, checkedAt: Date.now() };
+    }
   }
 
   if (source.sourceType === 'movie') {
