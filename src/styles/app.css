@@ -2774,3 +2774,16 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
 .sangtian-window[data-player-scope="playback-page"] .sangtian-fullscreen-controls {
   isolation: isolate;
 }
+
+
+.player-feature-block-tv1-live {
+  --player-feature-scope: tv1-live;
+}
+
+.player-feature-block[data-player-block="tv1-live"] .sangtian-window {
+  isolation: isolate;
+}
+
+.sangtian-window[data-player-scope="tv1-live"] .sangtian-fullscreen-controls {
+  isolation: isolate;
+}
