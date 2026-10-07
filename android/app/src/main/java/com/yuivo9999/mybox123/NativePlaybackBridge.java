@@ -687,7 +687,7 @@ public final class NativePlaybackBridge {
             if (percent < 100) emit("buffering", null);
         });
         ijkPlayer.setOnErrorListener((mp, what, extra) -> {
-            if (generation != playbackGeneration || released) return;
+            if (generation != playbackGeneration || released) return false;
             fallbackOrError("IJK_ERROR:" + what + ":" + extra, generation);
             return true;
         });
