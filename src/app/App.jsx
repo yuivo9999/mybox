@@ -68,25 +68,26 @@ export function App(){
  const reloadGenerationRef=useRef(0);
  const applySourceResult=(result,generation=reloadGenerationRef.current)=>{
    if(generation!==reloadGenerationRef.current)return;
-   const incomingMovies=contentService.getMovies(result.movies);
+   const currentSources=persistent.sources||[];
+   const hasSources=currentSources.length>0;
+   const incomingMovies=hasSources?contentService.getMovies(result.movies):[];
    const failed=result.results.filter(item=>item.status==='rejected');
    const selectedMovieSourceId=persistent.selectedSources?.movie ?? persistent.settings?.defaultMovieSource ?? null;
    const resultMovieSourceId=result.results.find(item=>item.status==='fulfilled'&&item.sourceId)?.sourceId ?? selectedMovieSourceId ?? null;
    setContentState(state=>{
-     // 严格去重合并，防止出现重复内容
-     const movies=deduplicateMovies(state.movies??[],incomingMovies??[]);
-     const categories=[...(state.movieCategories??[]),...(result.movieCategories??[])];
+     const movies=hasSources?deduplicateMovies(state.movies??[],incomingMovies??[]):[];
+     const categories=hasSources?[...(state.movieCategories??[]),...(result.movieCategories??[])]:[];
      const seen=new Set();
      const uniqueCategories=categories.filter(item=>{const key=String(item.name||item.id||'').trim();if(seen.has(key))return false;seen.add(key);return true;});
      return {
        status:'success',
        movies,
-       channels:result.channels?.length?result.channels:state.channels,
+       channels:hasSources&&(result.channels?.length)?result.channels:[],
        error:failed.length?failed:null,
        sourceLoading:false,
-       movieCategories:uniqueCategories.length?uniqueCategories:state.movieCategories,
+       movieCategories:hasSources?(uniqueCategories.length?uniqueCategories:state.movieCategories):[],
        movieActiveCategory:state.movieActiveCategory??{id:'movie',name:'电影'},
-       movieSourceId:resultMovieSourceId,
+       movieSourceId:hasSources?resultMovieSourceId:null,
        movieCategoryLoading:false
      };
    });
@@ -226,6 +227,23 @@ export function App(){
    if(Object.keys(patch).length)persistent.updateSettings(patch);else persistent.reload?.();
    applySourceResult(result);
  };
+ const clearAllSources=async()=>{
+   const result=await sourceManagementService.clearAll();
+   persistent.updateSettings({defaultMovieSource:null,defaultLiveSource:null});
+   setContentState({
+     status:'success',
+     movies:[],
+     channels:[],
+     error:null,
+     sourceLoading:false,
+     movieCategories:[],
+     movieActiveCategory:{id:'movie',name:'电影'},
+     movieSourceId:null,
+     movieCategoryLoading:false
+   });
+   persistent.reload?.();
+   applySourceResult(result);
+ };
  const nav=(key)=>sessionStateStore.patch({tab:key,route:null,selected:null});
 
  // 全局 Android 风格横向导航：顶层五页使用左右切页；下一级页面右滑返回父级。
@@ -334,7 +352,7 @@ export function App(){
       {(() => {
         // 1. If in a management tab, always show it
         if (isManagementTab) {
-          return <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>;
+          return <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource} onClearAllSources={clearAllSources}/>;
         }
 
         // 2. 保证首页立即展示静态精选内容，不以全屏Loading阻断用户操作与Live界面
@@ -343,7 +361,7 @@ export function App(){
             <>
               {movieActive
                 ? <MovieFeature route={route} tab={tab} selected={selected} movies={contentState.movies} channels={contentState.channels} history={persistent.history} progress={persistent.progress} selectedSources={persistent.selectedSources} sources={persistent.sources} movieCategories={contentState.movieCategories} movieActiveCategory={contentState.movieActiveCategory} movieCategoryLoading={contentState.movieCategoryLoading} onLoadMovieCategory={(category)=>{setContentState(state=>({...state,movieActiveCategory:category??state.movieActiveCategory}));handleLoadMoreCategory(category,1);}} onLoadMoreCategory={handleLoadMoreCategory} onSelectMovieSource={setSourceActive} favorites={persistent.favorites} onMovie={openMovie} onPlay={playMovie} onTab={nav} onBack={()=>sessionStateStore.patch({route:route==='movie-play'?(selected?.metadata?.returnRoute||'detail'):null,selected:route==='movie-play'?(selected?.metadata?.movie||selected):null})} onLive={playLive} recordSearch={persistent.recordSearch} toggleFavorite={persistent.toggleFavorite}/>
-                : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>}
+                : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource} onClearAllSources={clearAllSources}/>}
               {!sourceErrorDismissed && <ErrorState text="无法加载源" onClose={()=>setSourceErrorDismissed(true)}/>}
             </>
           );
@@ -352,7 +370,7 @@ export function App(){
         // 3. Show normal content features
         return movieActive 
           ? <MovieFeature route={route} tab={tab} selected={selected} movies={contentState.movies} channels={contentState.channels} history={persistent.history} progress={persistent.progress} selectedSources={persistent.selectedSources} sources={persistent.sources} movieCategories={contentState.movieCategories} movieActiveCategory={contentState.movieActiveCategory} movieCategoryLoading={contentState.movieCategoryLoading} onLoadMovieCategory={(category)=>{setContentState(state=>({...state,movieActiveCategory:category??state.movieActiveCategory}));handleLoadMoreCategory(category,1);}} onLoadMoreCategory={handleLoadMoreCategory} onSelectMovieSource={setSourceActive} favorites={persistent.favorites} onMovie={openMovie} onPlay={playMovie} onTab={nav} onBack={()=>sessionStateStore.patch({route:route==='movie-play'?(selected?.metadata?.returnRoute||'detail'):null,selected:route==='movie-play'?(selected?.metadata?.movie||selected):null})} onLive={playLive} recordSearch={persistent.recordSearch} toggleFavorite={persistent.toggleFavorite}/>
-          : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource}/>;
+          : <MainPage tab={tab} movies={contentState.movies} channels={contentState.channels} favorites={persistent.favorites} history={persistent.history} progress={persistent.progress} settings={persistent.settings} sources={persistent.sources} searches={persistent.searches} onTab={nav} onMovie={openMovie} onLive={playLive} onLiveChannel={openLiveChannel} onSearchHistory={openSearchHistory} toggleFavorite={persistent.toggleFavorite} onClearData={persistent.clearUserData} onClearHistory={persistent.clearHistory} onClearSearches={persistent.clearSearches} onRemoveSearch={persistent.removeSearch} onClearCache={persistent.clearCache} onSourceEnabled={setSourceEnabled} onSourceActive={setSourceActive} onUpdateSettings={persistent.updateSettings} onTestSource={testSource} onSaveSources={saveSources} onRemoveSource={removeSource} onClearAllSources={clearAllSources}/>;
       })()}
       
       {!route && <BottomNav tab={tab} onTab={nav}/>}

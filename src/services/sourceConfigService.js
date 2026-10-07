@@ -1,3 +1,4 @@
+import { storage } from '../storage/storage.js';
 import { sourceRepository } from '../repositories/sourceRepository.js';
 import { createSourceAdapters } from '../adapters/sourceAdapterFactory.js';
 
@@ -657,8 +658,9 @@ export const DEFAULT_PRESET_SOURCES = Object.freeze([
 
 export const sourceConfigService = {
   read() {
-    const existing = sourceRepository.getAll();
-    if (Array.isArray(existing) && existing.length > 0) return existing;
+    if (storage.has('sources')) {
+      return sourceRepository.getAll();
+    }
     sourceRepository.saveAll(DEFAULT_PRESET_SOURCES);
     return sourceRepository.getAll();
   },

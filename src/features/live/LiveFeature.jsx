@@ -18,10 +18,9 @@ export function createLiveFeature({ channels = [] } = {}) {
 }
 
 
-export async function resolveLiveChannelStreams(channel, { sources = [], signal } = {}) {
+export async function resolveLiveChannelStreams(channel, { sources = [], signal, forceRefresh = false } = {}) {
   if (!channel) return [];
-  if (Array.isArray(channel.streams) && channel.streams.length) return channel.streams;
-  if (!channel.deferredRef) return [];
+  if (Array.isArray(channel.streams) && channel.streams.length && !channel.deferredRef && !forceRefresh) return channel.streams;
 
   const tv1Source = channel.sourceRefs?.find(ref =>
     sources.some(source =>
@@ -35,19 +34,23 @@ export async function resolveLiveChannelStreams(channel, { sources = [], signal 
     ? sources.find(item => item.sourceId === tv1Source.sourceId)
     : null;
 
+  const reqTag = forceRefresh ? `refresh_${Date.now()}_` : '';
+
   if (source) {
     return requestManager.run(
-      'tv1-streams:' + source.sourceId + ':' + channel.channelId,
+      'tv1-streams:' + reqTag + source.sourceId + ':' + channel.channelId,
       requestSignal => tv1LiveService.getStreams(source, channel, {
         signal: signal || requestSignal,
+        forceRefresh,
       }),
     );
   }
 
   return requestManager.run(
-    'live-deferred-streams:' + channel.channelId,
+    'live-deferred-streams:' + reqTag + channel.channelId,
     requestSignal => liveService.getStreams(channel, {
       signal: signal || requestSignal,
+      forceRefresh,
     }),
   );
 }
@@ -172,7 +175,8 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   );
   const activeChannel = useMemo(() => {
     if (!activeChannelBase) return null;
-    const lazyStreams = resolvedStreams[activeChannelBase.channelId];
+    const lazy = resolvedStreams[activeChannelBase.channelId];
+    const lazyStreams = Array.isArray(lazy) ? lazy : lazy?.streams;
     return lazyStreams ? { ...activeChannelBase, streams: lazyStreams } : activeChannelBase;
   }, [activeChannelBase, resolvedStreams]);
 
@@ -238,8 +242,12 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     return () => { active = false; };
   }, [activeChannel]);
 
-  const loadChannelStreams = async channel => {
-    if (!channel?.deferredRef || resolvedStreams[channel.channelId]) return;
+  const loadChannelStreams = async (channel, forceRefresh = false) => {
+    if (!channel?.deferredRef) return;
+    const existing = resolvedStreams[channel.channelId];
+    const resolvedAt = existing?.resolvedAt || 0;
+    const isStale = Date.now() - resolvedAt > 60000;
+    if (existing && !isStale && !forceRefresh) return;
 
     if (streamAbortRef.current) {
       streamAbortRef.current.abort();
@@ -254,9 +262,13 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       const streams = await resolveLiveChannelStreams(channel, {
         sources: enabledTv1Sources,
         signal: controller.signal,
+        forceRefresh,
       });
-      if (!controller.signal.aborted) {
-        setResolvedStreams(prev => ({ ...prev, [channel.channelId]: streams }));
+      if (!controller.signal.aborted && Array.isArray(streams) && streams.length > 0) {
+        setResolvedStreams(prev => ({
+          ...prev,
+          [channel.channelId]: { streams, resolvedAt: Date.now() },
+        }));
       }
     } catch (error) {
       if (error?.name !== 'AbortError') setTv1Error(error);
@@ -367,7 +379,18 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     }
     return () => {
       void player;
-      playbackController.leave();
+      try {
+        playbackController?.stop?.();
+        playbackController?.leave?.();
+      } catch (e) {}
+      if (videoRef?.current) {
+        try {
+          videoRef.current.pause();
+          videoRef.current.src = "";
+          videoRef.current.removeAttribute('src');
+          try { videoRef.current.load(); } catch {}
+        } catch (e) {}
+      }
     };
   }, [playbackController]);
 

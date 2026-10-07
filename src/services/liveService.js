@@ -131,21 +131,28 @@ export const liveService = {
     return { channel: { ...channelRef, streams, epg }, streams, epg };
   },
 
-  async getStreams(channelRef) {
+  async getStreams(channelRef, options = {}) {
     const cacheKey = liveChannelCacheKey(channelRef);
-    const cached = cacheStorage.get(CacheNamespace.LIVE_CHANNEL, cacheKey, { allowStale: true });
-    if (cached.hit && !cached.stale) return cached.value?.streams ?? [];
+    if (!options.forceRefresh) {
+      const cached = cacheStorage.get(CacheNamespace.LIVE_CHANNEL, cacheKey, { allowStale: false });
+      if (cached.hit && !cached.stale) return cached.value?.streams ?? [];
+    } else {
+      cacheStorage.remove(CacheNamespace.LIVE_CHANNEL, cacheKey);
+    }
     const adapters = liveRegistry.list().filter((adapter) => channelRef?.sourceRefs?.some((ref) => ref.sourceId === adapter.sourceId));
+    const reqKey = options.forceRefresh ? `live:streams:${Date.now()}:` : 'live:streams:';
     const results = await Promise.allSettled(adapters.map((adapter) =>
-      requestManager.run(`live:streams:${adapter.sourceId}:${channelRef?.channelId ?? ''}`, (signal) => adapter.getStreams(channelRef, { signal })),
+      requestManager.run(`${reqKey}${adapter.sourceId}:${channelRef?.channelId ?? ''}`, (signal) => adapter.getStreams(channelRef, { signal })),
     ));
     const streams = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
     if (streams.length) {
       const expiries = streams.map(stream => typeof stream.expiresAt === 'number' ? stream.expiresAt : Date.parse(stream.expiresAt ?? '')).filter(Number.isFinite);
-      const ttl = expiries.length ? Math.max(1000, Math.min(5 * 60 * 1000, Math.min(...expiries) - Date.now())) : undefined;
-      cacheStorage.set(CacheNamespace.LIVE_CHANNEL, cacheKey, { streams }, ttl === undefined ? {} : { ttl });
+      const minExpiry = expiries.length ? Math.min(...expiries) - Date.now() : 60000;
+      const ttl = Math.max(1000, Math.min(60000, minExpiry));
+      cacheStorage.set(CacheNamespace.LIVE_CHANNEL, cacheKey, { streams }, { ttl });
       return streams;
     }
+    const cached = cacheStorage.get(CacheNamespace.LIVE_CHANNEL, cacheKey, { allowStale: true });
     if (cached.hit) return cached.value?.streams ?? [];
     return channelRef?.streams ?? [];
   },

@@ -30,7 +30,7 @@ export const CacheTTL = Object.freeze({
   [CacheNamespace.DETAIL]: 7 * 24 * 60 * 60 * 1000, // 7 days TTL
   [CacheNamespace.EPISODE]: 24 * 60 * 60 * 1000,
   [CacheNamespace.LIVE_SOURCE]: 60 * 60 * 1000,
-  [CacheNamespace.LIVE_CHANNEL]: 30 * 60 * 1000,
+  [CacheNamespace.LIVE_CHANNEL]: 60 * 1000, // 60s TTL for live stream URLs
   [CacheNamespace.EPG]: 3 * 24 * 60 * 60 * 1000, // 3 days EPG retention
   [CacheNamespace.IMAGE]: 3 * 24 * 60 * 60 * 1000,
   [CacheNamespace.PLAYBACK_TEMP]: 10 * 60 * 1000,

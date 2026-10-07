@@ -2,8 +2,24 @@ import { sourceRepository } from '../repositories/sourceRepository.js';
 import { userDataService } from './userDataService.js';
 import { syncAllSources, testSource } from './sourceRuntimeService.js';
 import { tv1LiveService } from './tv1LiveService.js';
+import { sourceRegistryService } from './sourceRegistryService.js';
+import { liveService } from './liveService.js';
+import { cacheService } from './cacheService.js';
 
 export const sourceManagementService = {
+  async clearAll() {
+    sourceRepository.saveAll([]);
+    userDataService.saveSelectedSources({ movie: null, live: null });
+    const settings = userDataService.getSnapshot().settings || {};
+    if (settings.defaultMovieSource || settings.defaultLiveSource) {
+      userDataService.updateSettings({ defaultMovieSource: null, defaultLiveSource: null });
+    }
+    tv1LiveService.clear();
+    sourceRegistryService.clear();
+    liveService.clearRuntimeCache();
+    cacheService.clearAll();
+    return this.reload();
+  },
   async reload(options = {}) {
     const selected = userDataService.getSnapshot().selectedSources;
     return syncAllSources({ ...options, movieSourceId: options.movieSourceId ?? selected.movie ?? null });
