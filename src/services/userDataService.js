@@ -24,6 +24,10 @@ export const userDataService = {
       migration: userDataRepository.getMigrationState(),
     };
   },
+  saveSelectedSources(value = { movie: null, live: null }) {
+    userDataRepository.saveSelectedSources(value);
+    return value;
+  },
   setSelectedSource(sourceType, sourceId) {
     const current = userDataRepository.getSelectedSources();
     const next = { ...current, [sourceType]: sourceId || null };

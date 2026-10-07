@@ -10,6 +10,9 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
   const cleanupHls = () => {
     if (hlsInstance) {
       try {
+        hlsInstance.stopLoad();
+      } catch {}
+      try {
         hlsInstance.detachMedia();
       } catch {}
       try {
@@ -37,13 +40,14 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
   const adapter={
     get capabilities(){return createPlayerCapabilities(video);},
     load(next){
-      if(released)throw new Error('PLAYER_ADAPTER_RELEASED');
-      input=next;
-      state=PlayerState.LOADING;
-      hlsRecoveryCount=0;
-      cleanupHls();
-      video.pause();
-      video.removeAttribute('src');
+       if(released)throw new Error('PLAYER_ADAPTER_RELEASED');
+       input=next;
+       state=PlayerState.LOADING;
+       hlsRecoveryCount=0;
+       cleanupHls();
+       video.pause();
+       video.removeAttribute('src');
+       try { video.load(); } catch (e) {}
 
       const isHls = Boolean(next.url && (next.url.includes('.m3u8') || next.protocol === 'hls' || next.format === 'hls'));
       const isLiveStream = Boolean(

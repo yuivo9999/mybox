@@ -8,16 +8,18 @@ import { cacheService } from './cacheService.js';
 
 export const sourceManagementService = {
   async clearAll() {
-    sourceRepository.saveAll([]);
-    userDataService.saveSelectedSources({ movie: null, live: null });
-    const settings = userDataService.getSnapshot().settings || {};
-    if (settings.defaultMovieSource || settings.defaultLiveSource) {
-      userDataService.updateSettings({ defaultMovieSource: null, defaultLiveSource: null });
-    }
-    tv1LiveService.clear();
-    sourceRegistryService.clear();
-    liveService.clearRuntimeCache();
-    cacheService.clearAll();
+    try { sourceRepository.saveAll([]); } catch (e) { console.error('Clear sources repository error:', e); }
+    try { userDataService.saveSelectedSources({ movie: null, live: null }); } catch (e) {}
+    try {
+      const settings = userDataService.getSnapshot().settings || {};
+      if (settings.defaultMovieSource || settings.defaultLiveSource) {
+        userDataService.updateSettings({ defaultMovieSource: null, defaultLiveSource: null });
+      }
+    } catch (e) {}
+    try { tv1LiveService.clear(); } catch (e) {}
+    try { sourceRegistryService.clear(); } catch (e) {}
+    try { liveService.clearRuntimeCache(); } catch (e) {}
+    try { cacheService.clearAll(); } catch (e) {}
     return this.reload();
   },
   async reload(options = {}) {
