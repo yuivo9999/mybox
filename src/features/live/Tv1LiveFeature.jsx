@@ -81,21 +81,10 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const visible = useMemo(() => category === '全部' ? channels : channels.filter(channel => channel.category === category), [channels, category]);
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'ijk';
-    let decoderMode = 'hardware';
-    if (typeof engineInput === 'string') {
-      if (engineInput.includes('exo')) {
-        engine = 'exo';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else if (engineInput.includes('ijk')) {
-        engine = 'ijk';
-        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
-      } else {
-        engine = engineInput;
-      }
-    }
-
-    const normalizedSelection = normalizeDecoderSelection(engine, decoderMode);
+    const scheme = getPlaybackScheme(engineInput);
+    const engine = scheme.engine;
+    const decoderMode = scheme.decoder;
+    const normalizedSelection = scheme.id;
     setDecoderEngine(normalizedSelection);
 
     const currentPlayback = settings?.playback || {};
