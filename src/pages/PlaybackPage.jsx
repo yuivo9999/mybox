@@ -12,6 +12,14 @@ import {
 } from '../components/theme/SangtianPlayerConsole.jsx';
 import { PlaybackPagePlayerBlock } from '../components/player/PlaybackPagePlayerBlock.jsx';
 
+function normalizeDecoderSelection(player = 'exo', mode = 'hardware') {
+  const engine = String(player || 'exo').trim().toLowerCase();
+  if (engine === 'exo' || engine === 'ijk') {
+    return engine + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware');
+  }
+  return engine || 'exo';
+}
+
 function PlaybackView({
   request,
   kind,
@@ -37,29 +45,58 @@ function PlaybackView({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(
-    (kind === 'live' ? settings?.playback?.livePlayer : settings?.playback?.moviePlayer) ?? 'exo'
-  );
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = settings?.playback || {};
+    const engine = isLive ? playback.livePlayer : playback.moviePlayer;
+    return normalizeDecoderSelection(engine || 'exo', playback.decoder?.[engine] || 'hardware');
+  });
 
-  const handleSwitchDecoderEngine = async (engineId) => {
-    setDecoderEngine(engineId);
+  const handleSwitchDecoderEngine = async (engineInput) => {
+    let engine = 'exo';
+    let decoderMode = 'hardware';
+    if (typeof engineInput === 'string') {
+      if (engineInput.includes('exo')) {
+        engine = 'exo';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else if (engineInput.includes('ijk')) {
+        engine = 'ijk';
+        decoderMode = engineInput.includes('soft') ? 'software' : 'hardware';
+      } else {
+        engine = engineInput;
+      }
+    }
+    const normalizedSelection = normalizeDecoderSelection(engine, decoderMode);
+    setDecoderEngine(normalizedSelection);
 
-    // 1. 保存设置到持久化 settings 中
+    // 1. 保存“播放内核”与对应的硬/软解模式，不能把 exo_hardware/ijk_software
+    // 直接写进 livePlayer/moviePlayer，否则 NativePlaybackBridge 无法识别 engine。
     const currentPlayback = settings?.playback || {};
     saveSettings({
       ...settings,
       playback: {
         ...currentPlayback,
-        [isLive ? 'livePlayer' : 'moviePlayer']: engineId,
+        [isLive ? 'livePlayer' : 'moviePlayer']: engine,
+        decoder: {
+          ...(currentPlayback.decoder || {}),
+          [engine]: decoderMode,
+        }
       }
     });
 
-    // 2. 立即重新以新的解码内核载入并播放
+    // 2. 立即以新的解码内核与硬/软解模式重新载入并播放
     const retry = candidate || controller.start();
     if (retry) {
       setResolvedInput(null);
       setError('');
-      controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
+      const hintCand = {
+        ...retry,
+        playerHint: {
+          ...(retry.playerHint || {}),
+          engine,
+          decoder: decoderMode,
+        }
+      };
+      controller.resolveAndLoad(hintCand).catch(e => setError(e?.message || '重新加载失败'));
     }
   };
   const [playbackTime, setPlaybackTime] = useState(0);
@@ -138,6 +175,14 @@ function PlaybackView({
       if (event.event === 'error') setError(event.error || '播放候选失败');
       if (event.event === 'released') setStatus('released');
       if (event.event === 'stopped') setStatus('stopped');
+      if (event.event === 'decoderChanged') {
+        const payload = event?.data ?? event?.decoder ?? {};
+        const engine = String(payload?.engine ?? '').toLowerCase();
+        const mode = String(payload?.mode ?? '').toLowerCase();
+        if (engine === 'exo' || engine === 'ijk') {
+          setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        }
+      }
 
       // VOD Progress Tracking
       if (!isLive && event.event === 'progress') {
