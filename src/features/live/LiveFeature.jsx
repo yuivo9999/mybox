@@ -663,15 +663,27 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
 
   const handleStartImmersivePlay = async (channelToPlay = activeChannel, streamId = activeStream?.streamId) => {
     if (!channelToPlay) return;
+
     let targetIdx = 0;
     if (streamId && Array.isArray(channelToPlay.streams)) {
       const idx = channelToPlay.streams.findIndex(s => s.streamId === streamId || s.url === streamId);
       if (idx >= 0) targetIdx = idx;
     }
-    if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
-      await loadChannelStreams(channelToPlay);
+
+    const currentChannelId = activeChannel?.channelId || selectedChannelId;
+    const currentStreamIdx = activeStreamIndexRef.current ?? activeStreamIndex ?? 0;
+    const samePlaybackTarget = currentChannelId === channelToPlay.channelId && currentStreamIdx === targetIdx;
+
+    // “沉浸播放”只是同一直播播放器的展示层切换。
+    // 当前频道/线路已经在播放时，禁止再次调用 selectChannel()，
+    // 因为 selectChannel() 会清空 <video>、重置候选并重新连接直播。
+    if (!samePlaybackTarget) {
+      if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
+        await loadChannelStreams(channelToPlay);
+      }
+      selectChannel(channelToPlay, targetIdx);
     }
-    selectChannel(channelToPlay, targetIdx);
+
     setIsImmersive(true);
   };
 
