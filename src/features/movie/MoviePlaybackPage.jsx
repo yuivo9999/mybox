@@ -13,6 +13,14 @@ import {
 import { PlaybackPagePlayerBlock } from '../../components/player/PlaybackPagePlayerBlock.jsx';
 import { OtherSourceSearchDialog } from './OtherSourceSearchDialog.jsx';
 
+function normalizeDecoderSelection(player = 'exo', mode = 'hardware') {
+  const engine = String(player || 'exo').trim().toLowerCase();
+  if (engine === 'exo' || engine === 'ijk') {
+    return engine + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware');
+  }
+  return engine || 'exo';
+}
+
 export function MoviePlaybackPage({
   request,
   movies = [],
@@ -37,7 +45,11 @@ export function MoviePlaybackPage({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(settings?.playback?.moviePlayer ?? 'exo');
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const playback = settings?.playback || {};
+    const engine = playback.moviePlayer || 'exo';
+    return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
     let engine = 'exo';
@@ -141,6 +153,14 @@ export function MoviePlaybackPage({
       if (event.event === 'error') setError(event.error || '播放候选失败');
       if (event.event === 'released') setStatus('released');
       if (event.event === 'stopped') setStatus('stopped');
+      if (event.event === 'decoderChanged') {
+        const payload = event?.data ?? event?.decoder ?? {};
+        const engine = String(payload?.engine ?? '').toLowerCase();
+        const mode = String(payload?.mode ?? '').toLowerCase();
+        if (engine === 'exo' || engine === 'ijk') {
+          setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        }
+      }
 
       // VOD Progress Tracking
       if (event.event === 'progress') {
