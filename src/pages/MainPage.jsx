@@ -6,6 +6,7 @@ import { sourceConfigService } from '../services/sourceConfigService.js';
 import { FONT_CATALOG, getFontById } from '../config/fontCatalog.js';
 import { ensureFont } from '../services/fontLoader.js';
 import { MovieCarousel } from '../components/media/MovieCarousel.jsx';
+import { PLAYBACK_SCHEMES, getPlaybackScheme, getPlaybackSchemeId } from '../models/userData.js';
 
 function Main({tab,movies,channels,favorites,history,sources,searches,progress,settings,onTab,onMovie,onLive,onLiveChannel,onSearchHistory,toggleFavorite,onClearData,onClearHistory,onSaveSources,onClearSearches,onRemoveSearch,onClearCache,onSourceEnabled,onSourceActive,onTestSource,onRemoveSource,onClearAllSources,onUpdateSettings}){
  const [favoriteSection,setFavoriteSection]=useState('movies'); const [fontPicker,setFontPicker]=useState(false);
@@ -34,21 +35,40 @@ function Main({tab,movies,channels,favorites,history,sources,searches,progress,s
       decoder:{...(playback.decoder??{}),...(patch.decoder??{})},
     },
   });
-  const playerLabel=value=>value==='ijk'?'IJKPlayer':value==='native'?'系统播放器':'ExoPlayer';
-  const decoderLabel=(value,auto='自动')=>value==='hardware'?'硬件解码':value==='software'?'软件解码':auto;
-  const order=(playback.fallbackOrder??['exo','ijk','native']).join(' → ');
+  const resolveScheme=(scope)=>getPlaybackScheme(
+    playback[scope+'PlaybackScheme'] || getPlaybackSchemeId(
+      playback[scope+'Player'] || 'ijk',
+      playback.decoder?.[playback[scope+'Player'] || 'ijk'] || 'hardware',
+    ),
+  );
+  const applyScheme=(scope, schemeId)=>{
+    const scheme=getPlaybackScheme(schemeId);
+    updatePlayback({
+      [scope+'Player']:scheme.engine,
+      [scope+'PlaybackScheme']:scheme.id,
+      decoder:{[scheme.engine]:scheme.decoder},
+    });
+  };
+  const nextScheme=(scope)=>{
+    const current=resolveScheme(scope);
+    const index=PLAYBACK_SCHEMES.findIndex(item=>item.id===current.id);
+    return PLAYBACK_SCHEMES[(index+1)%PLAYBACK_SCHEMES.length];
+  };
+  const order=(playback.fallbackOrder??['ijk','exo','native']).join(' → ');
+  const movieScheme=resolveScheme('movie');
+  const liveScheme=resolveScheme('live');
   return <Page><Header title="设置"/>
    <SectionTitle title="播放设置"/>
    <SettingMenu icon={Radio} title="自动继续播放" value={settings?.autoplayResume?'开启':'关闭'} onClick={()=>onUpdateSettings?.({autoplayResume:!settings?.autoplayResume})}/>
-   <SettingMenu icon={Radio} title="默认影视播放器" value={playerLabel(playback.moviePlayer)} onClick={()=>updatePlayback({moviePlayer:cycle(playback.moviePlayer??'exo',['exo','ijk','native'])})}/>
-   <SettingMenu icon={Radio} title="默认直播播放器" value={playerLabel(playback.livePlayer)} onClick={()=>updatePlayback({livePlayer:cycle(playback.livePlayer??'exo',['exo','ijk','native'])})}/>
+   <SettingMenu icon={Radio} title="默认影视播放方案" value={movieScheme.label} onClick={()=>applyScheme('movie',nextScheme('movie').id)}/>
+   <SettingMenu icon={Radio} title="默认直播播放方案" value={liveScheme.label} onClick={()=>applyScheme('live',nextScheme('live').id)}/>
    <SettingMenu icon={Radio} title="失败自动切换" value={playback.fallbackEnabled===false?'关闭':'开启'} onClick={()=>updatePlayback({fallbackEnabled:playback.fallbackEnabled===false})}/>
    <SettingMenu icon={Radio} title="切换顺序" value={order} onClick={()=>updatePlayback({fallbackOrder:rotateOrder(playback.fallbackOrder)})}/>
+   <InfoCard title="可选播放方案" text={PLAYBACK_SCHEMES.map(item=>item.label).join(' · ') + '。默认方案为 IJKPlayer 硬解；点击默认影视/直播播放方案可循环选择。Native 仍只作为内部故障兜底，不作为用户播放方案入口。'}/>
    <SectionTitle title="解码设置"/>
-   <SettingMenu icon={Radio} title="ExoPlayer 解码" value={decoderLabel(decoder.exo,'自动（MediaCodec）')} onClick={()=>updatePlayback({decoder:{exo:cycle(decoder.exo??'auto',['auto','hardware','software'])}})}/>
-   <SettingMenu icon={Radio} title="IJKPlayer 解码" value={decoderLabel(decoder.ijk,'自动（硬件优先）')} onClick={()=>updatePlayback({decoder:{ijk:cycle(decoder.ijk??'auto',['auto','hardware','software'])}})}/>
-   <SettingMenu icon={Radio} title="系统播放器解码" value="系统自动选择" onClick={()=>{}}/>
-   <InfoCard title="解码说明" text="ExoPlayer/Media3 可选择自动、硬件或平台软件 MediaCodec；若设备没有匹配的软件/硬件 MediaCodec，ExoPlayer 会失败并按播放器回退策略切换。IJKPlayer 支持硬件 MediaCodec 与 FFmpeg 软件解码；系统播放器由 Android 自动选择，应用不强制指定其硬/软解。"/>
+   <SettingMenu icon={Radio} title="当前影视方案" value={movieScheme.label} onClick={()=>applyScheme('movie',nextScheme('movie').id)}/>
+   <SettingMenu icon={Radio} title="当前直播方案" value={liveScheme.label} onClick={()=>applyScheme('live',nextScheme('live').id)}/>
+   <InfoCard title="解码说明" text="用户可选择 IJKPlayer 硬解、ExoPlayer 硬解、ExoPlayer 软解、IJKPlayer 软解四种方案。应用内部仍保留 Native/System 作为不可见的最后兜底；切换方案会立即作用于对应影视或直播播放。"/>
    <SectionTitle title="线路设置"/>
    <SettingMenu icon={Radio} title="默认影视线路" value={sourceSettingLabel(sources,'movie',settings?.defaultMovieSource)} onClick={()=>onUpdateSettings?.({defaultMovieSource:nextSource(sources,'movie',settings?.defaultMovieSource)})}/>
    <SettingMenu icon={Radio} title="默认直播线路" value={sourceSettingLabel(sources,'live',settings?.defaultLiveSource)} onClick={()=>onUpdateSettings?.({defaultLiveSource:nextSource(sources,'live',settings?.defaultLiveSource)})}/>
@@ -290,7 +310,7 @@ const InfoCard=({title,text})=><div className="info-card"><Info size={18}/><div>
 const Empty=({text})=><div className="empty"><Film size={22}/><span>{text}</span></div>;
 const MovieGrid=React.memo(function MovieGrid({movies,onMovie}){return <div className="movie-grid">{movies.map(movie=><article className="movie-card" key={movie.contentId} onClick={()=>onMovie(movie)}><SmartImage src={movie.poster} alt={movie.title}/><div><b>{movie.title}</b><span>{movie.year} · {movie.category}</span></div></article>)}</div>});
 const cycle=(value,values)=>{const index=values.indexOf(value);return values[(index+1)%values.length]};
-const rotateOrder=(order=['exo','ijk','native'])=>{const normalized=['exo','ijk','native'].filter(item=>order?.includes(item));const safe=normalized.length===3?normalized:['exo','ijk','native'];return [...safe.slice(1),safe[0]]};
+const rotateOrder=(order=['ijk','exo','native'])=>{const normalized=['ijk','exo','native'].filter(item=>order?.includes(item));const safe=normalized.length===3?normalized:['ijk','exo','native'];return [...safe.slice(1),safe[0]]};
 const nextSource=(sources,type,current)=>{const list=sources.filter(source=>source.sourceType===type&&source.enabled!==false);if(!list.length)return null;const ids=[null,...list.map(source=>source.sourceId)];const index=Math.max(0,ids.indexOf(current));return ids[(index+1)%ids.length]??null};
 const sourceSettingLabel=(sources,type,id)=>sources.find(source=>source.sourceType===type&&source.sourceId===id)?.name||'自动选择';
 const Menu=({icon:Icon,title,onClick,badge})=><button className="menu" onClick={onClick}><Icon size={19}/><span>{title}</span>{badge>0&&<em>{badge}</em>}<ChevronLeft className="flip" size={17}/></button>;
