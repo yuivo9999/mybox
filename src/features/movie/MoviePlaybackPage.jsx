@@ -12,13 +12,10 @@ import {
 } from '../../components/theme/SangtianPlayerConsole.jsx';
 import { PlaybackPagePlayerBlock } from '../../components/player/PlaybackPagePlayerBlock.jsx';
 import { OtherSourceSearchDialog } from './OtherSourceSearchDialog.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
 
-function normalizeDecoderSelection(player = 'exo', mode = 'hardware') {
-  const engine = String(player || 'exo').trim().toLowerCase();
-  if (engine === 'exo' || engine === 'ijk') {
-    return engine + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware');
-  }
-  return engine || 'exo';
+function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
 }
 
 export function MoviePlaybackPage({
@@ -47,13 +44,14 @@ export function MoviePlaybackPage({
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(() => {
     const playback = settings?.playback || {};
-    const engine = playback.moviePlayer || 'exo';
+    const engine = playback.moviePlayer || 'ijk';
     return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
   });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
-    let decoderMode = 'hardware';
+    const scheme = getPlaybackScheme(engineInput);
+    let engine = scheme.engine;
+    let decoderMode = scheme.decoder;
     if (typeof engineInput === 'string') {
       if (engineInput.includes('exo')) {
         engine = 'exo';
@@ -65,7 +63,7 @@ export function MoviePlaybackPage({
         engine = engineInput;
       }
     }
-    setDecoderEngine(engineInput);
+    setDecoderEngine(normalizedSelection);
 
     // 1. 保存设置到持久化 settings 中
     const currentPlayback = settings?.playback || {};
