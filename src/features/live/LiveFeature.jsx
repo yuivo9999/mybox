@@ -213,17 +213,6 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       onPlayerError: ({ error }) => {
         const errMsg = error?.message || '播放器加载失败';
         setPlaybackError(errMsg);
-        // Automatic stream fallback retry for live channels with multiple lines
-        const req = livePlaybackRequestRef.current;
-        const curIdx = activeStreamIndexRef.current;
-        if (req?.candidates?.length > 1 && curIdx + 1 < req.candidates.length) {
-          const nextIndex = curIdx + 1;
-          setActiveStreamIndex(nextIndex);
-          const candidate = req.candidates[nextIndex];
-          if (candidate && playbackControllerRef.current) {
-            playbackControllerRef.current.switchCandidate(candidate.candidateId);
-          }
-        }
       },
       onParserError: ({ code }) => setPlaybackError('解析失败：' + code),
       onExhausted: () => setPlaybackStatus('error'),
@@ -404,16 +393,36 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   }, [allChannels, selectedCategory]);
 
   const handleSwitchStream = (index) => {
-    if (index < 0) return;
-    setActiveStreamIndex(index);
-    globalLiveCache.activeStreamIndex = index;
+    if (index < 0 || !activeChannel?.streams?.length) return;
+    const boundedIndex = Math.max(0, Math.min(index, activeChannel.streams.length - 1));
+    setActiveStreamIndex(boundedIndex);
+    globalLiveCache.activeStreamIndex = boundedIndex;
     const req = livePlaybackRequestRef.current;
-    const candidate = req?.candidates?.[index];
+    const candidate = req?.candidates?.[boundedIndex];
+    setPlaybackError('');
+    setResolvedPlaybackInput(null);
     if (candidate && playbackControllerRef.current) {
-      playbackControllerRef.current.switchCandidate(candidate.candidateId);
+      const switched = playbackControllerRef.current.switchCandidate(candidate.candidateId);
       setPlaybackCandidate(candidate);
-      setPlaybackError('');
-      setResolvedPlaybackInput(null);
+      if (!switched) {
+        playbackControllerRef.current.resolveAndLoad(candidate).catch(e => setPlaybackError(e?.message || '线路加载失败'));
+      }
+    } else if (activeChannel.streams[boundedIndex]) {
+      const stream = activeChannel.streams[boundedIndex];
+      const customCandidate = {
+        candidateId: stream.streamId || `stream-${activeChannel.channelId}-${boundedIndex + 1}`,
+        mediaUrl: stream.mediaUrl || stream.url,
+        url: stream.mediaUrl || stream.url,
+        label: stream.label || `线路 ${boundedIndex + 1}`,
+        protocol: stream.protocol || 'HLS/M3U8',
+        sourceId: stream.sourceId,
+        channelId: activeChannel.channelId,
+        kind: 'live',
+      };
+      setPlaybackCandidate(customCandidate);
+      if (playbackControllerRef.current) {
+        playbackControllerRef.current.resolveAndLoad(customCandidate).catch(e => setPlaybackError(e?.message || '线路加载失败'));
+      }
     }
   };
 

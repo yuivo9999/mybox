@@ -1163,23 +1163,49 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
 }
 .console-tab-switches {
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .console-tab-btn {
-  width: 30px;
-  height: 30px;
+  min-height: 30px;
+  padding: 4px 10px;
   border-radius: 8px;
   border: 1px solid #d4c5ad;
   background: #f6eee0;
   color: #554433;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s;
+}
+.console-tab-btn:hover {
+  background: #ede2cb;
+  border-color: #b8a688;
 }
 .console-tab-btn.active {
   background: #2a2018;
   color: #ffffff;
   border-color: #2a2018;
+}
+.theme-dark .console-tab-btn {
+  border-color: #4b3b2e;
+  background: #30251d;
+  color: #ded5ca;
+}
+.theme-dark .console-tab-btn:hover {
+  background: #3d3025;
+  border-color: #634f3f;
+}
+.theme-dark .console-tab-btn.active {
+  background: #e60012;
+  color: #ffffff;
+  border-color: #e60012;
 }
 
 /* Console Body Sections */

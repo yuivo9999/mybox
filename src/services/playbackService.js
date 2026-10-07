@@ -221,11 +221,6 @@ export function createPlaybackTask(request = {}) {
       const index = snapshot.candidates.findIndex((candidate) => candidate.candidateId === candidateId);
       if (index < 0) return null;
       failedCandidates.delete(candidateId);
-      if (isPlaybackCandidateExpired(snapshot.candidates[index])) {
-        failedCandidates.add(candidateId);
-        emit('error', { candidateId, code: PlaybackFailureCode.EXPIRED, error: 'PLAYBACK_CANDIDATE_EXPIRED' });
-        return null;
-      }
       currentIndex = index;
       currentCandidateId = candidateId;
       retryCount = 0;

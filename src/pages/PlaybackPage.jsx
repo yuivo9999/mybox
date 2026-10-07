@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Heart, ListVideo, Film, Radio } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Heart, ListVideo, Film, Radio, Search } from 'lucide-react';
 import { movieService } from '../services/movieService.js';
 import { playbackService } from '../services/playbackService.js';
 import { usePersistentState } from '../state/usePersistentState.js';
 import { SangtianTopBar } from '../components/theme/SangtianTopBar.jsx';
 import { SangtianDrawer } from '../components/theme/SangtianDrawer.jsx';
+import { OtherSourceSearchDialog } from '../features/movie/OtherSourceSearchDialog.jsx';
 import {
   SangtianPlayerWindow,
   SangtianFloatingBar,
@@ -39,6 +40,7 @@ function PlaybackView({
   const [decoderEngine, setDecoderEngine] = useState('exo');
   const [playbackTime, setPlaybackTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [otherSourceSearchOpen, setOtherSourceSearchOpen] = useState(false);
 
   const videoRef = useRef(null);
 
@@ -220,6 +222,15 @@ function PlaybackView({
       setSource(next.sourceId ?? '');
       setResolvedInput(null);
       setError('');
+    } else {
+      const cand = candidates.find(c => c.candidateId === id);
+      if (cand) {
+        setCandidate(cand);
+        setSource(cand.sourceId ?? '');
+        setResolvedInput(null);
+        setError('');
+        controller.resolveAndLoad(cand).catch(e => setError(e?.message || '线路加载失败'));
+      }
     }
   };
 
@@ -290,26 +301,13 @@ function PlaybackView({
 
   return (
     <div className="player-page theme-sangtian-layout">
-      {/* 1. Rich Top Bar Controls */}
+      {/* 1. Top Bar: Left (Hamburger), Center (Title), Right (More Vertical) */}
       <SangtianTopBar
-        onBack={onBack}
         title={isLive ? (channel?.name || request?.metadata?.title) : (movie?.title || request?.metadata?.title)}
         subTitle={isLive ? (currentProgram?.title || '直播频道') : (currentEpisode?.title || `第 ${episodeIndex + 1} 集`)}
         onHamburger={() => setDrawerOpen(true)}
-        onPreview={isLive ? undefined : () => {
-          const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));
-          if (next) switchCandidate(next.candidateId);
-        }}
-        previewText={isLive ? null : "切换源"}
-        workspaceText={isLive ? parsedChannelInfo.cleanName : `集数 ${episodeIndex + 1}`}
-        badgeRed={isLive ? parsedChannelInfo.number : String(candidates.length)}
-        badgeYellow={isLive ? (isFavorited ? "已收藏" : "收藏") : "解析"}
-        yellowHeart={isLive}
-        isYellowActive={isFavorited}
-        onYellowClick={isLive ? () => {
-          if (request?.channelId) toggleFavorite?.('channel', request.channelId);
-        } : undefined}
         onWorkspace={() => setSourceModalOpen(true)}
+        onSearchSameName={isLive ? undefined : () => setOtherSourceSearchOpen(true)}
         currentTheme={settings?.theme || 'sangtian'}
         onSelectTheme={handleSelectTheme}
         onCopyLink={() => {
@@ -318,7 +316,8 @@ function PlaybackView({
           }
         }}
         onReload={handleRetry}
-        onOpenSettings={() => onBack()}
+        onOpenSettings={() => onTab?.('settings') || onBack()}
+        onBack={onBack}
       />
 
       {/* Hamburger Navigation Drawer */}
@@ -437,6 +436,7 @@ function PlaybackView({
           if (request?.contentId) toggleFavorite?.('content', request.contentId);
         }}
         isFav={isLive ? false : favorites.some(item => item.targetId === request?.contentId)}
+        onSearchSameName={isLive ? undefined : () => setOtherSourceSearchOpen(true)}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {
@@ -448,45 +448,24 @@ function PlaybackView({
         }}
       />
 
-      {/* 6. Context Navigation Bar for Movies */}
-      {!isLive && (
-        <section className="movie-playback-context" aria-label="播放导航详情" style={{ marginTop: 12 }}>
-          <div className="movie-playback-context-main" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '16px 0' }}>
-            <div className="movie-playback-title" style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              textAlign: 'center',
-              width: '100%',
-              margin: '0 auto',
-            }}>
-              <b style={{
-                fontSize: '22px',
-                letterSpacing: '0.2em',
-                textShadow: 'none',
-                fontWeight: 'bold',
-                marginBottom: '6px',
-                color: '#e60012'
-              }}>
-                {movie?.title || request?.metadata?.title || '正在播放'}
-              </b>
-              <span style={{
-                fontSize: '13px',
-                letterSpacing: '0.08em',
-                opacity: 0.85,
-                color: 'var(--color-text-muted, #b39b7d)'
-              }}>
-                {(currentEpisode?.title || `第 ${episodeIndex + 1} 集`)} · {candidateLabel}
-              </span>
-            </div>
-          </div>
-          <div className="movie-playback-context-actions">
-            <button type="button" disabled={episodeIndex <= 0} onClick={() => onEpisode?.(movie, episodeIndex - 1, source, request?.metadata?.returnRoute || 'detail')}><ChevronLeft size={15} />上一集</button>
-            <button type="button" onClick={() => setSourceModalOpen(true)}><ListVideo size={15} />选集/换源</button>
-            <button type="button" disabled={episodeIndex >= episodes.length - 1} onClick={() => onEpisode?.(movie, episodeIndex + 1, source, request?.metadata?.returnRoute || 'detail')}>下一集<ChevronRight size={15} /></button>
-          </div>
-        </section>
+      {/* 全网搜同名弹窗 */}
+      {otherSourceSearchOpen && (
+        <OtherSourceSearchDialog
+          title={movie?.title || request?.metadata?.title || '影片'}
+          currentSourceId={source}
+          sources={persistent?.sources || []}
+          onClose={() => setOtherSourceSearchOpen(false)}
+          onMovie={movieItem => {
+            setOtherSourceSearchOpen(false);
+            if (onMovie) onMovie(movieItem);
+            else if (onEpisode) onEpisode(movieItem, 0, movieItem?.sourceId, 'detail');
+          }}
+          onPlay={(m, epIdx, srcId) => {
+            setOtherSourceSearchOpen(false);
+            if (onEpisode) onEpisode(m, epIdx || 0, srcId, 'detail');
+            else if (onPlay) onPlay(m, epIdx || 0, srcId, 'detail');
+          }}
+        />
       )}
 
       {/* Unified Source Selection Drawer / Modal */}

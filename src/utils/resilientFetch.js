@@ -109,7 +109,9 @@ export async function resilientFetch(url, options = {}, transport = fetch) {
     return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
   };
 
+  const isBrowser = typeof window !== 'undefined' && Boolean(window.location);
   const proxies = [
+    ...(isBrowser ? [(target) => `/api/vod-proxy?url=${encodeURIComponent(target)}`] : []),
     (target) => `https://corsproxy.io/?${encodeURIComponent(target)}`,
     (target) => `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
   ];

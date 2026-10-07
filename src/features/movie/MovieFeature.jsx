@@ -8,6 +8,7 @@ import { SmartImage, EmptyState } from '../../components/StateViews.jsx';
 import { MovieCarousel } from '../../components/media/MovieCarousel.jsx';
 import { MovieCard } from '../../components/media/MovieCard.jsx';
 import { MoviePlaybackPage } from './MoviePlaybackPage.jsx';
+import { OtherSourceSearchDialog, MovieSearchList } from './OtherSourceSearchDialog.jsx';
 
 export function MovieFeature(props){
  const { route,tab,selected,movies=[],channels=[],history,progress,selectedSources={},sources=[],favorites,onMovie,onPlay,onTab,onBack,onLive,recordSearch,toggleFavorite,onSelectMovieSource,movieCategories=[],movieActiveCategory=null,movieCategoryLoading=false,onLoadMovieCategory,onLoadMoreCategory }=props;
@@ -22,8 +23,8 @@ export function MovieFeature(props){
  },[route,tab]);
  const feature=useMemo(()=>createMovieFeature({movies,history,progress}),[movies,history]);
  if(route==='search') return <MovieSearch movies={movies} sources={sources} initial={page.search.query} recordSearch={recordSearch} onMovie={onMovie} onPlay={onPlay} onBack={onBack} onQuery={query=>pageStateStore.patch('search',{query})}/>;
- if(route==='detail'){const movie=feature.getDetail(selected?.contentId??selected) || (selected?.contentId ? selected : null);if(!movie)return <MovieEmpty text="影视内容不存在" onBack={onBack}/>;return <MovieDetail movie={movie} movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onMovie={onMovie} favorite={favorites.some(i=>i.targetType==='content'&&i.targetId===movie.contentId)} progress={progress} history={history} onBack={onBack} onPlay={onPlay} onFavorite={()=>toggleFavorite('content',movie.contentId)}/>;}
- if(route==='movie-play') return <MoviePlaybackPage request={selected} movies={movies} favorites={favorites} toggleFavorite={toggleFavorite} onBack={onBack} onEpisode={onPlay} onMovie={onMovie} onTab={onTab}/>;
+ if(route==='detail'){const movie=(selected?.metadata?.movie) || feature.getDetail(selected?.contentId??selected) || (selected?.contentId ? selected : (typeof selected === 'object' && selected?.title ? selected : null));if(!movie)return <MovieEmpty text="影视内容不存在" onBack={onBack}/>;return <MovieDetail movie={movie} movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onMovie={onMovie} favorite={favorites.some(i=>i.targetType==='content'&&i.targetId===movie.contentId)} progress={progress} history={history} onBack={onBack} onPlay={onPlay} onFavorite={()=>toggleFavorite('content',movie.contentId)}/>;}
+ if(route==='movie-play') return <MoviePlaybackPage request={selected} movies={movies} sources={sources} favorites={favorites} toggleFavorite={toggleFavorite} onBack={onBack} onEpisode={onPlay} onMovie={onMovie} onTab={onTab}/>;
  if(tab==='movies') return <MovieCatalog movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onSelectMovieSource={onSelectMovieSource} state={movieState} setState={patch=>pageStateStore.patch('movies',patch)} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onLoadMoreCategory={onLoadMoreCategory} onMovie={onMovie} onPlay={onPlay} onSearch={()=>onMovie(null,'search')} recordSearch={recordSearch}/>;
  return <MovieHome feature={feature} movies={movies} channels={channels} sources={sources} selectedSourceId={selectedSources?.movie} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onLoadMoreCategory={onLoadMoreCategory} onSelectMovieSource={onSelectMovieSource} onTab={onTab} onMovie={onMovie} onPlay={onPlay} onLive={onLive} onSearch={()=>onMovie(null,'search')}/>;
 }
@@ -820,15 +821,6 @@ function GlobalMovieSearch({query,sources=[],onMovie,onPlay}){
  return <div><SectionTitle title="全源搜索结果" action={String(total)+' 条'}/><div style={{display:'grid',gap:18}}>{state.groups.filter(group=>(group.items?.length??0)>0).map(group=><section key={group.sourceId}><div className="section-title" style={{marginBottom:8}}><h3>{group.sourceName}</h3><span style={{fontSize:12,color:'#8f9aaa'}}>{group.items.length} 条</span></div><MovieSearchList movies={group.items} onMovie={onPlay||onMovie}/></section>)}</div>{state.failed.length>0&&<div style={{fontSize:11,color:'#8f9aaa',marginTop:12}}>另有 {state.failed.length} 个源未返回结果，已跳过，不影响其他源。</div>}</div>;
 }
 
-function MovieSearchList({movies=[],onMovie}){ 
- return <div className="movie-search-list">
-   {movies.map((movie,index)=><button className="movie-search-list-item" key={`${movie.contentId||movie.episodeId||movie.sourceId||'movie'}_${index}`} type="button" onClick={()=>onMovie?.(movie)}>
-     <span className="movie-search-list-poster"><SmartImage src={movie.poster} alt="" fallback={<div className="image-placeholder"><Film size={18}/></div>}/></span>
-     <span className="movie-search-list-copy"><b>{movie.title||'未命名'}</b><small>{movie.year||'—'} · {movie.category||'—'}{movie.episodeCount?' · '+movie.episodeCount+'集':''}</small></span>
-     <ChevronRight size={17}/>
-   </button>)}
- </div>;
-}
 
 function MovieDetail({movie,movies,sources=[],selectedSourceId,onMovie,onBack,onPlay,favorite,onFavorite,progress=[],history=[]}){
   const [otherSourceSearchOpen,setOtherSourceSearchOpen]=useState(false);
@@ -1005,64 +997,6 @@ function MovieDetail({movie,movies,sources=[],selectedSourceId,onMovie,onBack,on
    <SectionTitle title="同类精彩推荐" />
    {related.length ? <MovieCarousel movies={related} onMovie={onMovie} /> : <MovieEmpty compact text="暂无相关推荐" />}
  </Page>;
-}
-
-function OtherSourceSearchDialog({title,currentSourceId,sources=[],onClose,onMovie,onPlay}){
- const [state,setState]=useState({results:[],failed:[],loading:true,completed:0,total:0,error:''});
- useEffect(()=>{
-   const controller=new AbortController();
-   let active=true;
-   const otherSources=sources.filter(source=>source?.sourceType==='movie'&&source?.enabled!==false&&source.sourceId!==currentSourceId);
-   setState({results:[],failed:[],loading:true,completed:0,total:otherSources.length,error:''});
-   if(!otherSources.length){setState({results:[],failed:[],loading:false,completed:0,total:0,error:'暂无其他已启用影视源可搜索'});return ()=>{active=false;controller.abort();};}
-   searchMovieSources(otherSources,title,{signal:controller.signal,pageSize:12,timeoutMs:4500,onSourceResult:(entry,meta)=>{
-     if(!active)return;
-     setState(current=>({
-       ...current,
-       results:entry.status==='fulfilled'?[...current.results,entry]:current.results,
-       failed:entry.status==='rejected'?[...current.failed,entry]:current.failed,
-       completed:meta?.completed??current.completed,
-     }));
-   }}).then(result=>{
-     if(!active)return;
-     setState(current=>({...current,loading:false,results:result.results??current.results,failed:result.failed??current.failed,completed:result.completed??current.completed}));
-   }).catch(err=>{
-     if(!active||err?.name==='AbortError')return;
-     setState(current=>({...current,loading:false,error:err?.message||'搜索失败'}));
-   });
-   return ()=>{active=false;controller.abort();};
- },[title,currentSourceId,sources]);
-
- const total=state.results.reduce((sum,item)=>sum+(item.items?.length??0),0);
- return <div className="android-search-backdrop" onClick={event=>{if(event.target===event.currentTarget)onClose()}}>
-   <div className="android-search-dialog" role="dialog" aria-modal="true" aria-label="其他源搜索">
-     <div className="android-search-header">
-       <div><b>其他源搜索</b><small>《{title}》 · 逐个影视源搜索</small></div>
-       <button className="icon-button" aria-label="关闭" onClick={onClose}><X size={18}/></button>
-     </div>
-     <div className="android-search-status">
-       <Search size={15}/>
-       <span>{state.loading ? `正在逐源搜索 · ${state.completed}/${state.total}` : `搜索完成 · ${total} 条结果`}</span>
-       {state.loading&&<span className="android-search-live-dot" aria-label="流式显示中">流式</span>}
-     </div>
-     <div className="android-search-results">
-       {state.results.filter(group=>(group.items?.length??0)>0).map((group, idx)=>
-         <section className="android-search-source-group" key={`${group.sourceId || 'src'}_${idx}`}>
-           <div className="android-search-source-title"><b>{group.sourceName}</b><span>{group.items.length} 条</span></div>
-           <MovieSearchList movies={group.items} onMovie={item=>{if(onPlay) onPlay(item,0,item?.sourceId,'detail'); else onMovie(item);}}/>
-         </section>
-       )}
-       {state.loading&&state.results.length===0&&<div className="android-search-empty"><Search size={20}/><span>正在搜索第一个影视源，结果会逐个出现…</span></div>}
-       {!state.loading&&state.error&&<div className="android-search-empty"><span>{state.error}</span></div>}
-       {!state.loading&&!state.error&&!total&&<div className="android-search-empty"><span>没有找到《{title}》的其他来源</span></div>}
-       {state.failed.length>0&&<div className="android-search-failed">另有 {state.failed.length} 个源未返回结果，已自动跳过。</div>}
-     </div>
-     <div className="android-search-footer">
-       <span>{state.loading ? '不会并行请求全部源，不会阻塞当前页面。' : '点击任一结果可直接进入该来源的播放流程。'}</span>
-       <button className="secondary" onClick={onClose}>关闭</button>
-     </div>
-   </div>
- </div>;
 }
 
 const Page=({children})=><main className="page">{children}</main>;

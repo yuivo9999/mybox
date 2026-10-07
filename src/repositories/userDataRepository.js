@@ -1,6 +1,6 @@
-import { createFavoriteId, createHistoryId, createProgressId, createSearchId, emptyUserData } from '../models/userData';
-import { storage } from '../storage/storage';
-import { migrateLegacyData } from '../storage/migration';
+import { createFavoriteId, createHistoryId, createProgressId, createSearchId, emptyUserData } from '../models/userData.js';
+import { storage } from '../storage/storage.js';
+import { migrateLegacyData } from '../storage/migration.js';
 migrateLegacyData();
 const loadList = (key) => storage.read(key, []);
 export const userDataRepository = {

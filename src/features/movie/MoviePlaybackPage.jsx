@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ListVideo } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ListVideo, Search } from 'lucide-react';
 import { movieService } from '../../services/movieService.js';
 import { playbackService } from '../../services/playbackService.js';
+import { searchMovieSources } from '../../services/movieSourceService.js';
 import { usePersistentState } from '../../state/usePersistentState.js';
 import { SangtianTopBar } from '../../components/theme/SangtianTopBar.jsx';
 import { SangtianDrawer } from '../../components/theme/SangtianDrawer.jsx';
@@ -10,10 +11,12 @@ import {
   SangtianFloatingBar,
   SangtianConsoleCard,
 } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { OtherSourceSearchDialog } from './OtherSourceSearchDialog.jsx';
 
 export function MoviePlaybackPage({
   request,
   movies = [],
+  sources = [],
   favorites = [],
   toggleFavorite,
   onBack,
@@ -25,6 +28,9 @@ export function MoviePlaybackPage({
 
   const [source, setSource] = useState(request?.metadata?.sourceId ?? request?.candidates?.[0]?.sourceId ?? '');
   const [candidate, setCandidate] = useState(request?.candidates?.[0] ?? null);
+  const [onlineCandidates, setOnlineCandidates] = useState([]);
+  const [matchingOnline, setMatchingOnline] = useState(false);
+  const [otherSourceSearchOpen, setOtherSourceSearchOpen] = useState(false);
   const [status, setStatus] = useState('idle');
   const [resolvedInput, setResolvedInput] = useState(null);
   const [error, setError] = useState('');
@@ -38,6 +44,8 @@ export function MoviePlaybackPage({
   const videoRef = useRef(null);
   const playerWindowBodyRef = useRef(null);
   const progressRef = useRef({ currentTime: 0, duration: null, persistedAt: 0 });
+  const recordProgressRef = useRef(recordProgress);
+  recordProgressRef.current = recordProgress;
 
   useEffect(() => {
     let active = true;
@@ -75,7 +83,7 @@ export function MoviePlaybackPage({
 
   const episodeIndex = useMemo(() => {
     return Math.max(0, episodes.findIndex(item => item.episodeId === request?.episodeId) ?? 0);
-  }, [episodes, request]);
+  }, [episodes, request?.episodeId]);
 
   const currentEpisode = useMemo(() => {
     return episodes[episodeIndex] ?? null;
@@ -97,14 +105,14 @@ export function MoviePlaybackPage({
         }
         progressRef.current = { ...progressRef.current, currentTime, duration };
         if (request?.contentId && request?.episodeId && currentTime - progressRef.current.persistedAt >= 15) {
-          recordProgress(request.contentId, request.episodeId, currentTime, duration, false);
+          recordProgressRef.current?.(request.contentId, request.episodeId, currentTime, duration, false);
           progressRef.current.persistedAt = currentTime;
         }
       }
       if (event.event === 'completed' && request?.contentId && request?.episodeId) {
         const progress = progressRef.current;
         if (progress.currentTime > 0) {
-          recordProgress(request.contentId, request.episodeId, progress.currentTime, progress.duration, true);
+          recordProgressRef.current?.(request.contentId, request.episodeId, progress.currentTime, progress.duration, true);
         }
       }
     },
@@ -118,7 +126,10 @@ export function MoviePlaybackPage({
     onParserError: ({ code }) => setError('解析失败：' + code),
     onPlayerError: ({ error: e }) => setError(e?.message || '播放器加载失败'),
     onExhausted: () => setStatus('error'),
-  }), [request, recordProgress]);
+  }), [request?.requestId || request?.contentId, request?.episodeId]);
+
+  const controllerRef = useRef(controller);
+  controllerRef.current = controller;
 
   useEffect(() => {
     let active = true;
@@ -144,13 +155,13 @@ export function MoviePlaybackPage({
 
       if (request?.contentId && request?.episodeId && progressRef.current.currentTime > 0) {
         const progress = progressRef.current;
-        recordProgress(request.contentId, request.episodeId, progress.currentTime, progress.duration, false);
+        recordProgressRef.current?.(request.contentId, request.episodeId, progress.currentTime, progress.duration, false);
       }
 
       controller.leave();
       void player;
     };
-  }, [controller, request, recordProgress]);
+  }, [controller]);
 
   useEffect(() => {
     const body = playerWindowBodyRef.current;
@@ -186,19 +197,108 @@ export function MoviePlaybackPage({
     };
   }, [controller]);
 
+  // 动态在线匹配真实片源：若当前是静态/测试流，或者配置了真实影视源，自动跨源搜索匹配该片名的真实 m3u8 播放线路
+  const sourcesKey = useMemo(() => (sources || []).map(s => s.sourceId).join(','), [sources]);
+  const matchedRef = useRef('');
+
+  useEffect(() => {
+    let active = true;
+    const title = String(movie?.title || request?.metadata?.title || '').trim();
+    if (!title || !Array.isArray(sources) || sources.length === 0) return undefined;
+    const cacheKey = `${title}_${episodeIndex}_${sourcesKey}`;
+    if (matchedRef.current === cacheKey) return undefined;
+    matchedRef.current = cacheKey;
+
+    searchMovieSources(sources, title, { timeoutMs: 5000, pageSize: 6 })
+      .then(res => {
+        if (!active || !res?.results?.length) return;
+        // 找到与当前片名最匹配的源条目
+        const matched = res.results.find(r => r.title === title || r.title?.includes(title) || title?.includes(r.title)) || res.results[0];
+        if (matched && Array.isArray(matched.episodes) && matched.episodes.length > 0) {
+          const epIdx = episodeIndex >= 0 ? episodeIndex : 0;
+          const targetEp = matched.episodes[epIdx] || matched.episodes[0];
+          const dynamicCandidates = (targetEp?.playbackCandidates || []).map((cand, idx) => ({
+            ...cand,
+            candidateId: `online_${matched.sourceId || 'src'}_${idx}_${Date.now()}`,
+            label: cand.label || `[${matched.sourceName || '真实片源'}] 线路${idx + 1}`,
+            sourceId: matched.sourceId || 'online_matched',
+            mediaUrl: cand.mediaUrl || cand.url,
+            metadata: {
+              ...(cand.metadata || {}),
+              onlineMatched: true,
+              sourceName: matched.sourceName || '在线源',
+            },
+          })).filter(c => Boolean(c.mediaUrl));
+
+          if (dynamicCandidates.length > 0 && active) {
+            setOnlineCandidates(dynamicCandidates);
+            // 若当前播放的是测试流或为空，自动无缝升级至真实片源
+            const curUrl = candidate?.mediaUrl || candidate?.url || '';
+            const isTestStream = !curUrl || curUrl.includes('test-streams.mux.dev');
+            if (isTestStream && dynamicCandidates[0]) {
+              const bestReal = dynamicCandidates[0];
+              controllerRef.current?.resolveAndLoad(bestReal)
+                .then(() => {
+                  if (active) {
+                    setCandidate(bestReal);
+                    setSource(bestReal.sourceId ?? '');
+                    setError('');
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [movie?.title, request?.metadata?.title, sourcesKey, episodeIndex]);
+
+  const allCandidates = useMemo(() => {
+    const raw = [...(request?.candidates ?? []), ...onlineCandidates];
+    const seen = new Set();
+    return raw.filter(cand => {
+      const url = cand.mediaUrl || cand.url || cand.candidateId;
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    });
+  }, [request?.candidates, onlineCandidates]);
+
   const switchCandidate = id => {
+    const foundOnline = onlineCandidates.find(c => c.candidateId === id);
+    if (foundOnline) {
+      setCandidate(foundOnline);
+      setSource(foundOnline.sourceId ?? '');
+      setResolvedInput(null);
+      setError('');
+      controller.resolveAndLoad(foundOnline).catch(e => setError(e?.message || '线路加载失败'));
+      return;
+    }
     const next = controller.switchCandidate(id);
     if (next) {
       setCandidate(next);
       setSource(next.sourceId ?? '');
       setResolvedInput(null);
       setError('');
+    } else {
+      const cand = candidates.find(c => c.candidateId === id);
+      if (cand) {
+        setCandidate(cand);
+        setSource(cand.sourceId ?? '');
+        setResolvedInput(null);
+        setError('');
+        controller.resolveAndLoad(cand).catch(e => setError(e?.message || '线路加载失败'));
+      }
     }
   };
 
   const handleRetry = () => {
     setError('');
-    const retry = controller.start();
+    const retry = candidate || controller.start();
     if (retry) {
       controller.resolveAndLoad(retry).catch(e => setError(e?.message || '重新加载失败'));
     }
@@ -238,7 +338,7 @@ export function MoviePlaybackPage({
     saveSettings({ ...settings, theme: newTheme });
   };
 
-  const candidates = request?.candidates ?? [];
+  const candidates = allCandidates;
   const relatedMovies = movie ? movieService.getRelated({ movies, movie }) : [];
   const activeStreamUrl = resolvedInput?.url || candidate?.mediaUrl || candidate?.url || candidate?.metadata?.url || '';
 
@@ -246,21 +346,13 @@ export function MoviePlaybackPage({
 
   return (
     <div className="player-page theme-sangtian-layout">
-      {/* 1. Rich Top Bar Controls */}
+      {/* 1. Top Bar: Left (Hamburger), Center (Title), Right (More Vertical) */}
       <SangtianTopBar
-        onBack={onBack}
         title={movie?.title || request?.metadata?.title}
         subTitle={currentEpisode?.title || `第 ${episodeIndex + 1} 集`}
         onHamburger={() => setDrawerOpen(true)}
-        onPreview={() => {
-          const next = candidates.find(item => item.candidateId !== candidate?.candidateId && !controller.failedCandidateIds?.includes(item.candidateId));
-          if (next) switchCandidate(next.candidateId);
-        }}
-        previewText="切换源"
-        workspaceText={`集数 ${episodeIndex + 1}`}
-        badgeRed={String(candidates.length)}
-        badgeYellow="解析"
         onWorkspace={() => setSourceModalOpen(true)}
+        onSearchSameName={() => setOtherSourceSearchOpen(true)}
         currentTheme={settings?.theme || 'sangtian'}
         onSelectTheme={handleSelectTheme}
         onCopyLink={() => {
@@ -270,6 +362,7 @@ export function MoviePlaybackPage({
         }}
         onReload={handleRetry}
         onOpenSettings={() => onTab?.('settings') || onBack()}
+        onBack={onBack}
       />
 
       {/* Drawer */}
@@ -370,6 +463,7 @@ export function MoviePlaybackPage({
           if (request?.contentId) toggleFavorite?.('content', request.contentId);
         }}
         isFav={favorites.some(item => item.targetId === request?.contentId)}
+        onSearchSameName={() => setOtherSourceSearchOpen(true)}
         onTogglePip={() => {
           if (videoRef.current && document.pictureInPictureEnabled) {
             if (document.pictureInPictureElement) {
@@ -381,45 +475,6 @@ export function MoviePlaybackPage({
         }}
       />
 
-      {/* 5. Context Navigation Bar for Movies with Centered Title */}
-      <section className="movie-playback-context" aria-label="播放导航详情" style={{ marginTop: 12 }}>
-        <div className="movie-playback-context-main" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', padding: '16px 0' }}>
-          <div className="movie-playback-title" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            textAlign: 'center',
-            width: '100%',
-            margin: '0 auto',
-          }}>
-            <b style={{
-              fontSize: '22px',
-              letterSpacing: '0.2em',
-              textShadow: 'none',
-              fontWeight: 'bold',
-              marginBottom: '6px',
-              color: '#e60012'
-            }}>
-              {movie?.title || request?.metadata?.title || '正在播放'}
-            </b>
-            <span style={{
-              fontSize: '13px',
-              letterSpacing: '0.08em',
-              opacity: 0.85,
-              color: 'var(--color-text-muted, #b39b7d)'
-            }}>
-              {(currentEpisode?.title || `第 ${episodeIndex + 1} 集`)} · {candidateLabel}
-            </span>
-          </div>
-        </div>
-        <div className="movie-playback-context-actions">
-          <button type="button" disabled={episodeIndex <= 0} onClick={() => onEpisode?.(movie, episodeIndex - 1, source, request?.metadata?.returnRoute || 'detail')}><ChevronLeft size={15} />上一集</button>
-          <button type="button" onClick={() => setSourceModalOpen(true)}><ListVideo size={15} />选集/换源</button>
-          <button type="button" disabled={episodeIndex >= episodes.length - 1} onClick={() => onEpisode?.(movie, episodeIndex + 1, source, request?.metadata?.returnRoute || 'detail')}>下一集<ChevronRight size={15} /></button>
-        </div>
-      </section>
-
       {/* Source Selection Modal */}
       {sourceModalOpen && (
         <div className="sangtian-modal-backdrop" onClick={() => setSourceModalOpen(false)}>
@@ -427,7 +482,21 @@ export function MoviePlaybackPage({
             <div className="modal-header">
               <div className="modal-title-row">
                 <h3>播放线路与解析切换</h3>
-                <button className="close-btn" onClick={() => setSourceModalOpen(false)}>✕</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 12, borderRadius: 6 }}
+                    onClick={() => {
+                      setSourceModalOpen(false);
+                      setOtherSourceSearchOpen(true);
+                    }}
+                  >
+                    <Search size={13} />
+                    <span>搜同名</span>
+                  </button>
+                  <button className="close-btn" onClick={() => setSourceModalOpen(false)}>✕</button>
+                </div>
               </div>
             </div>
 
@@ -477,6 +546,25 @@ export function MoviePlaybackPage({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 全网搜同名弹窗 */}
+      {otherSourceSearchOpen && (
+        <OtherSourceSearchDialog
+          title={movie?.title || request?.metadata?.title || '影片'}
+          currentSourceId={source}
+          sources={sources}
+          onClose={() => setOtherSourceSearchOpen(false)}
+          onMovie={movieItem => {
+            setOtherSourceSearchOpen(false);
+            if (onMovie) onMovie(movieItem);
+            else if (onEpisode) onEpisode(movieItem, 0, movieItem?.sourceId, 'detail');
+          }}
+          onPlay={(item, epIdx, srcId) => {
+            setOtherSourceSearchOpen(false);
+            onEpisode?.(item, epIdx || 0, srcId, 'detail');
+          }}
+        />
       )}
     </div>
   );

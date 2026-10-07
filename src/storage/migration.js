@@ -1,5 +1,5 @@
-import { createFavoriteId, createHistoryId, createProgressId, createSearchId, emptyUserData } from '../models/userData';
-import { storage } from './storage';
+import { createFavoriteId, createHistoryId, createProgressId, createSearchId, emptyUserData } from '../models/userData.js';
+import { storage } from './storage.js';
 
 const MIGRATION_VERSION = 2;
 const LEGACY_KEYS = { favorites: 'tvbox:favorites', history: 'tvbox:history', searches: 'tvbox:searches', sources: 'tvbox:sources' };

@@ -131,6 +131,44 @@ export function normalizeTitle(title) {
     .replace(/[\s\-_:：·（）\(\)\[\]【】]/g, '');
 }
 
+const CATEGORY_STREAM_POOLS = {
+  '电影': [
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', label: '科幻动作4K' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', label: '奇幻冒险超清' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', label: '动作大片专线' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', label: '极速蓝光' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', label: '欢乐院线' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', label: '超清原画' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4', label: '震撼视界' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4', label: '经典重置' },
+  ],
+  '电视剧': [
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Subtled.mp4', label: '卫视高清' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4', label: '全集蓝光' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', label: '极速同步' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', label: '4K超清线路' },
+  ],
+  '动漫': [
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', label: '国创动漫' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', label: '热血番剧' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', label: '新番极速' },
+  ],
+  '综艺': [
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', label: '官方卫视' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4', label: '现场原画' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', label: '欢乐加更' },
+  ],
+  '短剧': [
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', label: '全网热播' },
+    { url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4', label: '爽剧极速' },
+  ],
+};
+
+function getStreamForCategory(category, index = 0) {
+  const list = CATEGORY_STREAM_POOLS[category] || CATEGORY_STREAM_POOLS['电影'];
+  return list[index % list.length];
+}
+
 /**
  * 针对某个类别获取更多全新、不重复的内容
  * @param {string|object} category - 类别名称或分类对象，默认为“电影”
@@ -166,6 +204,18 @@ export function getMoreCategoryItems(category, existingMovies = [], count = 12) 
     if (existingFingerprints.has(`id:${pseudoId}`)) continue;
 
     const poster = POSTER_PRESETS[i % POSTER_PRESETS.length];
+    const stream = getStreamForCategory(targetCategory, i);
+    const epCount = targetCategory === '电视剧' ? 24 : targetCategory === '短剧' ? 80 : targetCategory === '动漫' ? 12 : targetCategory === '综艺' ? 12 : 1;
+
+    const episodes = Array.from({ length: Math.min(epCount, 12) }, (_, epIdx) => ({
+      episodeId: `${pseudoId}:ep${epIdx + 1}`,
+      title: targetCategory === '电影' ? '正片 4K' : `第 ${epIdx + 1} 集`,
+      episodeNumber: epIdx + 1,
+      playbackCandidates: [
+        { mediaUrl: stream.url, label: stream.label || '超清专线' },
+      ],
+    }));
+
     const item = {
       contentId: pseudoId,
       title: raw.title,
@@ -181,15 +231,8 @@ export function getMoreCategoryItems(category, existingMovies = [], count = 12) 
       backdrop: poster,
       description: raw.desc || `${raw.title} - 高清精彩好片。`,
       actors: raw.actors || [],
-      playUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      episodes: [
-        {
-          episodeId: `${pseudoId}:ep1`,
-          title: '正片 4K',
-          episodeNumber: 1,
-          playbackCandidates: [{ mediaUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', label: '默认线路' }],
-        },
-      ],
+      playUrl: stream.url,
+      episodes,
       popularity: Math.floor(70 + Math.random() * 28),
     };
 
@@ -202,7 +245,6 @@ export function getMoreCategoryItems(category, existingMovies = [], count = 12) 
 
   // 3. 如果仍未填满 (用户多次点击，源源不断加载)，按该类别程序化生成高质量衍生佳作，确保绝对不重复
   if (freshItems.length < count) {
-    const needMore = count - freshItems.length;
     const categoryAdjectives = targetCategory === '电影'
       ? ['重案', '风暴', '极限', '黑金', '火线', '致命', '破晓', '寒战', '迷雾', '谍影', '深空', '怒火', '赤子', '猎鹰', '狂飙', '逆战', '无间', '暗战']
       : targetCategory === '电视剧'
@@ -239,6 +281,17 @@ export function getMoreCategoryItems(category, existingMovies = [], count = 12) 
 
       const pseudoId = `gen_${targetCategory}_${seed}_${Date.now()}`;
       const poster = POSTER_PRESETS[seed % POSTER_PRESETS.length];
+      const stream = getStreamForCategory(targetCategory, seed);
+      const epCount = targetCategory === '电视剧' ? 20 : targetCategory === '短剧' ? 60 : targetCategory === '动漫' ? 12 : targetCategory === '综艺' ? 12 : 1;
+
+      const episodes = Array.from({ length: Math.min(epCount, 8) }, (_, epIdx) => ({
+        episodeId: `${pseudoId}:ep${epIdx + 1}`,
+        title: targetCategory === '电影' ? '正片 4K' : `第 ${epIdx + 1} 集`,
+        episodeNumber: epIdx + 1,
+        playbackCandidates: [
+          { mediaUrl: stream.url, label: stream.label || '超清线路' },
+        ],
+      }));
 
       const item = {
         contentId: pseudoId,
@@ -255,15 +308,8 @@ export function getMoreCategoryItems(category, existingMovies = [], count = 12) 
         backdrop: poster,
         description: `${genTitle} - 同一类别深度精选热门大作，精彩不间断呈现。`,
         actors: ['实力演员'],
-        playUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-        episodes: [
-          {
-            episodeId: `${pseudoId}:ep1`,
-            title: '正片 4K',
-            episodeNumber: 1,
-            playbackCandidates: [{ mediaUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', label: '默认线路' }],
-          },
-        ],
+        playUrl: stream.url,
+        episodes,
         popularity: Math.floor(65 + Math.random() * 30),
       };
 

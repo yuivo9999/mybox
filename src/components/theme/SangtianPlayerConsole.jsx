@@ -3,7 +3,7 @@ import {
   Copy, Maximize2, Minimize2, RotateCw, Sparkles, Terminal, Paperclip,
   Play, Pause, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Rewind, FastForward,
   FileText, LayoutGrid, SlidersHorizontal, Check, RefreshCw, Ratio,
-  Lock, Unlock, ListVideo, Square, Heart
+  Lock, Unlock, ListVideo, Square, Heart, Search, Radio
 } from 'lucide-react';
 
 export function SangtianPlayerWindow({
@@ -270,31 +270,27 @@ export function SangtianPlayerWindow({
     : (candidates && candidates.length > 0)
     ? candidates
     : [];
-  const totalStreams = isLive && availableStreams.length > 0 ? availableStreams.length : 1;
+  const totalStreams = availableStreams.length > 0 ? availableStreams.length : 1;
   const currentStreamNum = Math.min(totalStreams, Math.max(1, (activeStreamIndex ?? 0) + 1));
 
   const handlePrevStream = (e) => {
     e?.stopPropagation?.();
     if (!totalStreams || totalStreams <= 1) return;
-    const prev = activeStreamIndex > 0 ? activeStreamIndex - 1 : totalStreams - 1;
-    onSwitchStreamIndex?.(prev);
+    const prev = (activeStreamIndex != null && activeStreamIndex > 0) ? activeStreamIndex - 1 : totalStreams - 1;
+    if (onSwitchStreamIndex) onSwitchStreamIndex(prev);
     const cand = candidates?.[prev];
-    if (cand?.candidateId) {
-      onSelectCandidate?.(cand.candidateId);
-      onSwitchCandidate?.(cand.candidateId);
-    }
+    if (cand?.candidateId && onSelectCandidate) onSelectCandidate(cand.candidateId);
+    else if (onSwitchCandidate) onSwitchCandidate(cand?.candidateId || prev);
   };
 
   const handleNextStream = (e) => {
     e?.stopPropagation?.();
     if (!totalStreams || totalStreams <= 1) return;
-    const next = activeStreamIndex + 1 < totalStreams ? activeStreamIndex + 1 : 0;
-    onSwitchStreamIndex?.(next);
+    const next = (activeStreamIndex != null && activeStreamIndex + 1 < totalStreams) ? activeStreamIndex + 1 : 0;
+    if (onSwitchStreamIndex) onSwitchStreamIndex(next);
     const cand = candidates?.[next];
-    if (cand?.candidateId) {
-      onSelectCandidate?.(cand.candidateId);
-      onSwitchCandidate?.(cand.candidateId);
-    }
+    if (cand?.candidateId && onSelectCandidate) onSelectCandidate(cand.candidateId);
+    else if (onSwitchCandidate) onSwitchCandidate(cand?.candidateId || next);
   };
 
   const handleCopyLink = () => {
@@ -918,13 +914,12 @@ export function SangtianPlayerWindow({
                                     key={stream.streamId || stream.candidateId || idx}
                                     className={`setting-btn ${isCurrent ? 'active' : ''}`}
                                     onClick={() => {
-                                      onSwitchStreamIndex?.(idx);
-                                      if (stream.candidateId) {
-                                        onSelectCandidate?.(stream.candidateId);
-                                        onSwitchCandidate?.(stream.candidateId);
-                                      } else if (candidates?.[idx]?.candidateId) {
-                                        onSelectCandidate?.(candidates[idx].candidateId);
-                                        onSwitchCandidate?.(candidates[idx].candidateId);
+                                      if (onSwitchStreamIndex) {
+                                        onSwitchStreamIndex(idx);
+                                      } else if (stream.candidateId && onSelectCandidate) {
+                                        onSelectCandidate(stream.candidateId);
+                                      } else if (candidates?.[idx]?.candidateId && onSelectCandidate) {
+                                        onSelectCandidate(candidates[idx].candidateId);
                                       }
                                       setShowRightSidebar(false);
                                     }}
@@ -1193,6 +1188,7 @@ export function SangtianConsoleCard({
   onBack,
   onFav,
   isFav = false,
+  onSearchSameName,
 }) {
   const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info' | 'sources'
   const [copiedLink, setCopiedLink] = useState(false);
@@ -1224,23 +1220,25 @@ export function SangtianConsoleCard({
   return (
     <div className="sangtian-console-card">
       {/* Sub-header Bar: Toggles & View Switches */}
-      <div className="sangtian-console-subbar">
-        <div className="console-toggles">
-          <div className="console-live-status">
-            <span className="live-pill">{isLive ? 'LIVE 直连' : 'VOD 播放'}</span>
-            <span>{playerStatus === 'playing' ? '播放中' : playerStatus === 'buffering' ? '缓冲中' : playerStatus === 'reconnecting' ? '自动重连中' : playerStatus === 'error' ? '播放失败' : '连接中'}</span>
+      <div className="sangtian-console-subbar" style={!isLive ? { justifyContent: 'flex-end' } : undefined}>
+        {isLive && (
+          <div className="console-toggles">
+            <div className="console-live-status">
+              <span className="live-pill">LIVE 直连</span>
+              <span>{playerStatus === 'playing' ? '播放中' : playerStatus === 'buffering' ? '缓冲中' : playerStatus === 'reconnecting' ? '自动重连中' : playerStatus === 'error' ? '播放失败' : '连接中'}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="console-tab-switches">
           {onBack && (
             <button
               className="console-tab-btn back-button"
               onClick={onBack}
-              title="返回"
-              style={{ marginRight: '4px' }}
+              title="返回上一页"
             >
-              <ChevronLeft size={16} />
+              <ChevronLeft size={14} />
+              <span>返回</span>
             </button>
           )}
           {onFav && (
@@ -1248,9 +1246,20 @@ export function SangtianConsoleCard({
               className={`console-tab-btn fav-button ${isFav ? 'active-fav' : ''}`}
               onClick={onFav}
               title={isFav ? "取消收藏" : "加入收藏"}
-              style={{ marginRight: '6px', color: isFav ? '#e11d48' : 'inherit' }}
+              style={{ color: isFav ? '#e11d48' : 'inherit' }}
             >
               <Heart size={14} fill={isFav ? '#e11d48' : 'none'} />
+              <span>{isFav ? '已收藏' : '收藏'}</span>
+            </button>
+          )}
+          {onSearchSameName && (
+            <button
+              className="console-tab-btn same-name-button"
+              onClick={onSearchSameName}
+              title="全网跨源搜同名影视"
+            >
+              <Search size={14} />
+              <span>搜同名</span>
             </button>
           )}
           <button
@@ -1258,14 +1267,16 @@ export function SangtianConsoleCard({
             onClick={() => setActiveTab('episodes')}
             title={isLive ? "频道选择" : "选集播放"}
           >
-            <LayoutGrid size={15} />
+            <LayoutGrid size={14} />
+            <span>{isLive ? '频道' : '选集'}</span>
           </button>
           <button
             className={`console-tab-btn ${activeTab === 'info' ? 'active' : ''}`}
             onClick={() => setActiveTab('info')}
             title={isLive ? "直播信息" : "剧集信息与简介"}
           >
-            <FileText size={15} />
+            <FileText size={14} />
+            <span>{isLive ? '信息' : '简介'}</span>
           </button>
         </div>
       </div>
@@ -1384,6 +1395,32 @@ export function SangtianConsoleCard({
             </div>
             {subtitle && <p className="console-subtitle">{subtitle}</p>}
             <p className="console-description">{description || '暂无剧情简介。'}</p>
+
+            <div className="console-info-actions" style={{ display: 'flex', gap: '8px', margin: '12px 0', flexWrap: 'wrap' }}>
+              {onSearchSameName && (
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)' }}
+                  onClick={onSearchSameName}
+                  title="全网跨源搜索同名影视"
+                >
+                  <Search size={15} />
+                  <span>全网搜同名</span>
+                </button>
+              )}
+              {onFav && (
+                <button
+                  type="button"
+                  className={`secondary ${isFav ? 'active-fav' : ''}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', background: isFav ? 'rgba(225,29,72,0.15)' : 'rgba(255,255,255,0.08)', color: isFav ? '#f43f5e' : '#fff', border: isFav ? '1px solid #f43f5e' : '1px solid rgba(255,255,255,0.15)' }}
+                  onClick={onFav}
+                >
+                  <Heart size={15} fill={isFav ? '#f43f5e' : 'none'} />
+                  <span>{isFav ? '已收藏' : '收藏'}</span>
+                </button>
+              )}
+            </div>
 
             <div className="console-url-snippet">
               <span className="snippet-label">当前流直链：</span>
