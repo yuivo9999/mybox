@@ -128,13 +128,14 @@ export const playbackService = {
   },
 };
 
-export function createPlaybackTask(request) {
+export function createPlaybackTask(request = {}) {
+  const candidates = Array.isArray(request?.candidates) ? request.candidates : [];
   const snapshot = Object.freeze({
     ...request,
-    candidates: request.candidates.map((candidate) => Object.freeze({
+    candidates: candidates.map((candidate) => Object.freeze({
       ...candidate,
-      headers: Object.freeze({ ...candidate.headers }),
-      metadata: Object.freeze({ ...candidate.metadata }),
+      headers: Object.freeze({ ...candidate?.headers }),
+      metadata: Object.freeze({ ...candidate?.metadata }),
     })),
   });
   let status = PlaybackRequestStatus.CREATED;

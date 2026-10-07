@@ -56,13 +56,14 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       if (isHls && Hls.isSupported()) {
         try {
           // 统一直播与流媒体播放内核技术：
-          // 1. 初次打开时采用即时快速加载起播（低延迟首次渲染）。
-          // 2. 随播放进行，动态将前置缓冲区提升至 60 秒（1分钟）提前量（lookahead buffer），抗网络抖动，杜绝卡顿。
+          // 1. 初次打开时采用即时低延时快速加载起播（低延时首次渲染）。
+          // 2. 随播放进行，动态逐步将前置缓冲区提升至 60 秒提前量（progressive lookahead buffer），抗网络抖动，杜绝卡顿。
+          let fragLoadedCount = 0;
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: false,
             backBufferLength: 60,
-            maxBufferLength: 60,
+            maxBufferLength: isLiveStream ? 15 : 30, // 初始快速起播
             maxMaxBufferLength: 120,
             maxBufferSize: 80 * 1000 * 1000,
             maxBufferHole: 0.8,
@@ -70,7 +71,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             nudgeOffset: 0.2,
             nudgeMaxRetry: 5,
             liveSyncDurationCount: 6,
-            liveMaxLatencyDurationCount: 30,
+            liveMaxLatencyDurationCount: 40,
             fragLoadingTimeOut: 25000,
             manifestLoadingTimeOut: 25000,
           });
@@ -89,8 +90,13 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             }
           });
           hls.on(Hls.Events.FRAG_LOADED, () => {
-            // 首次分片加载起播后，平滑扩大前置缓冲至 60 秒（1分钟提前量）
-            if (hls.config.maxBufferLength < 60) {
+            fragLoadedCount += 1;
+            // 逐步提前缓存至 60 秒直播内容提前量：15s -> 30s -> 45s -> 60s
+            if (fragLoadedCount === 1) {
+              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 30);
+            } else if (fragLoadedCount === 2) {
+              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
+            } else if (fragLoadedCount >= 3) {
               hls.config.maxBufferLength = 60;
             }
           });

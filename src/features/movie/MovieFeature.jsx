@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Film, Heart, Play, Search, Server, Sparkles, X, Tv } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Film, Heart, Play, Search, Server, Sparkles, X, Tv, RefreshCw } from 'lucide-react';
 import { movieService } from '../../services/movieService.js';
 import { searchMovieSources } from '../../services/movieSourceService.js';
 import { getCategoryIdByLabel } from '../../config/mediaTaxonomy.js';
@@ -10,7 +10,7 @@ import { MovieCard } from '../../components/media/MovieCard.jsx';
 import { MoviePlaybackPage } from './MoviePlaybackPage.jsx';
 
 export function MovieFeature(props){
- const { route,tab,selected,movies=[],channels=[],history,progress,selectedSources={},sources=[],favorites,onMovie,onPlay,onTab,onBack,onLive,recordSearch,toggleFavorite,onSelectMovieSource,movieCategories=[],movieActiveCategory=null,movieCategoryLoading=false,onLoadMovieCategory }=props;
+ const { route,tab,selected,movies=[],channels=[],history,progress,selectedSources={},sources=[],favorites,onMovie,onPlay,onTab,onBack,onLive,recordSearch,toggleFavorite,onSelectMovieSource,movieCategories=[],movieActiveCategory=null,movieCategoryLoading=false,onLoadMovieCategory,onLoadMoreCategory }=props;
  const page=usePageState(); const movieState=page.movies;
  useEffect(()=>{
   const pageKey=route==='search'?'search':tab==='movies'?'movies':'home';
@@ -24,8 +24,8 @@ export function MovieFeature(props){
  if(route==='search') return <MovieSearch movies={movies} sources={sources} initial={page.search.query} recordSearch={recordSearch} onMovie={onMovie} onPlay={onPlay} onBack={onBack} onQuery={query=>pageStateStore.patch('search',{query})}/>;
  if(route==='detail'){const movie=feature.getDetail(selected?.contentId??selected) || (selected?.contentId ? selected : null);if(!movie)return <MovieEmpty text="影视内容不存在" onBack={onBack}/>;return <MovieDetail movie={movie} movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onMovie={onMovie} favorite={favorites.some(i=>i.targetType==='content'&&i.targetId===movie.contentId)} progress={progress} history={history} onBack={onBack} onPlay={onPlay} onFavorite={()=>toggleFavorite('content',movie.contentId)}/>;}
  if(route==='movie-play') return <MoviePlaybackPage request={selected} movies={movies} favorites={favorites} toggleFavorite={toggleFavorite} onBack={onBack} onEpisode={onPlay} onMovie={onMovie} onTab={onTab}/>;
- if(tab==='movies') return <MovieCatalog movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onSelectMovieSource={onSelectMovieSource} state={movieState} setState={patch=>pageStateStore.patch('movies',patch)} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onMovie={onMovie} onPlay={onPlay} onSearch={()=>onMovie(null,'search')} recordSearch={recordSearch}/>;
- return <MovieHome feature={feature} movies={movies} channels={channels} sources={sources} selectedSourceId={selectedSources?.movie} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onSelectMovieSource={onSelectMovieSource} onTab={onTab} onMovie={onMovie} onPlay={onPlay} onLive={onLive} onSearch={()=>onMovie(null,'search')}/>;
+ if(tab==='movies') return <MovieCatalog movies={movies} sources={sources} selectedSourceId={selectedSources?.movie} onSelectMovieSource={onSelectMovieSource} state={movieState} setState={patch=>pageStateStore.patch('movies',patch)} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onLoadMoreCategory={onLoadMoreCategory} onMovie={onMovie} onPlay={onPlay} onSearch={()=>onMovie(null,'search')} recordSearch={recordSearch}/>;
+ return <MovieHome feature={feature} movies={movies} channels={channels} sources={sources} selectedSourceId={selectedSources?.movie} movieCategories={movieCategories} movieActiveCategory={movieActiveCategory} movieCategoryLoading={movieCategoryLoading} onLoadMovieCategory={onLoadMovieCategory} onLoadMoreCategory={onLoadMoreCategory} onSelectMovieSource={onSelectMovieSource} onTab={onTab} onMovie={onMovie} onPlay={onPlay} onLive={onLive} onSearch={()=>onMovie(null,'search')}/>;
 }
 
 export function createMovieFeature({movies=[],history=[],progress=[]}={}){return{
@@ -97,20 +97,52 @@ export function moviesForCategory(movies = [], category) {
   });
 }
 
-function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,movieCategories=[],movieActiveCategory,movieCategoryLoading,onLoadMovieCategory,onSelectMovieSource,onTab,onMovie,onPlay,onLive,onSearch}){
+function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,movieCategories=[],movieActiveCategory,movieCategoryLoading,onLoadMovieCategory,onLoadMoreCategory,onSelectMovieSource,onTab,onMovie,onPlay,onLive,onSearch}){
  const home=feature.getHome();
  const movieSources=sources.filter(source=>source.sourceType==='movie'&&source.enabled!==false);
  const selectedSource=sources.find(s=>s.sourceId===selectedSourceId) || movieSources[0] || null;
 
- // Filter categories for current source
- const rawCategories = movieCategories.filter(item => !item.sourceId || item.sourceId === selectedSourceId);
- const categoryItems = rawCategories.some(c => c.name === '全部' || c.id === 'all')
-   ? rawCategories
-   : [{ id: 'all', name: '全部', sourceId: selectedSourceId }, ...rawCategories];
+ // 首页以“电影”为第一位，排序保证电影始终排在最前面
+ const PREFERRED_CATEGORIES = ['电影', '电视剧', '动漫', '综艺', '短剧', '全部'];
+ const categoryItems = useMemo(() => {
+   const rawCategories = movieCategories.filter(item => !item.sourceId || item.sourceId === selectedSourceId);
+   const pool = [...rawCategories];
+   if (!pool.some(c => c.name === '全部' || c.id === 'all')) {
+     pool.push({ id: 'all', name: '全部', sourceId: selectedSourceId });
+   }
+   const result = [];
+   const seen = new Set();
+   for (const name of PREFERRED_CATEGORIES) {
+     const match = pool.find(c => c.name === name);
+     if (match) {
+       result.push(match);
+       seen.add(match.name);
+     } else if (name !== '全部') {
+       result.push({ id: name, name });
+       seen.add(name);
+     }
+   }
+   for (const c of pool) {
+     if (!seen.has(c.name)) {
+       result.push(c);
+       seen.add(c.name);
+     }
+   }
+   return result;
+ }, [movieCategories, selectedSourceId]);
 
- const active = movieActiveCategory && (!selectedSourceId || movieActiveCategory.sourceId === selectedSourceId)
-   ? movieActiveCategory
-   : categoryItems[0] ?? { id: 'all', name: '全部' };
+ const active = useMemo(() => {
+   if (movieActiveCategory) {
+     const found = categoryItems.find(c => c.name === movieActiveCategory.name || c.id === movieActiveCategory.id);
+     if (found) return found;
+   }
+   return categoryItems.find(c => c.name === '电影') || categoryItems[0] || { id: 'movie', name: '电影' };
+ }, [movieActiveCategory, categoryItems]);
+
+ const [categoryPage, setCategoryPage] = useState(1);
+ useEffect(() => {
+   setCategoryPage(1);
+ }, [active?.name, active?.id]);
 
  const isAllCategory = !active || active.id === 'all' || active.name === '全部';
  const currentMovies = isAllCategory ? movies : moviesForCategory(movies, active);
@@ -124,7 +156,7 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
  const varietySectionList = useMemo(() => isAllCategory ? moviesForCategory(movies, { name: '综艺' }) : [], [movies, isAllCategory]);
  const shortDramaList = useMemo(() => isAllCategory ? moviesForCategory(movies, { name: '短剧' }) : [], [movies, isAllCategory]);
 
- if(!movieSources.length) return (
+ if(!movieSources.length && !movies.length) return (
    <Page>
      <header className="top-header">
        <div>
@@ -355,32 +387,118 @@ function MovieHome({feature,movies=[],channels=[],sources=[],selectedSourceId,mo
           进入影视库查看完整海报墙与分页 ({movies.length} 部)
         </button>
       </div>
-    </>
-  ) : currentMovies.length > 0 ? (
-    <>
-      <div className="section-title" style={{ marginTop: 8, marginBottom: 8 }}>
-        <h3>{active?.name}</h3>
-        <span style={{ fontSize: 12, color: '#8f9aaa' }}>{currentMovies.length} 部内容</span>
-      </div>
-      <div className="movie-grid">
-        {currentMovies.map((movie, index) => (
-          <MovieCard key={movie.contentId ? `${movie.contentId}_cat_${index}` : `cat_${index}`} movie={movie} onClick={onMovie} />
-        ))}
-      </div>
-      <div style={{ textAlign: 'center', margin: '8px 0 24px' }}>
+      <div className="continuous-load-section">
         <button
-          className="secondary"
-          style={{ width: '100%', justifyContent: 'center' }}
-          onClick={() => {
-            pageStateStore.patch('movies', { category: active.name, page: 1 });
-            onTab('movies');
-          }}
+          type="button"
+          className="continuous-load-btn"
+          disabled={movieCategoryLoading}
+          onClick={() => onLoadMoreCategory?.({ name: '电影', id: 'movie' }, Math.floor(movies.length / 12) + 2)}
         >
-          在影视库中按年份与地区筛选“{active.name}”
+          <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
+          <span>{movieCategoryLoading ? '正在抓取新内容…' : '持续加载更多电影大片 (严格去重)'}</span>
         </button>
       </div>
     </>
-  ) : (
+  ) : currentMovies.length > 0 ? (() => {
+      const categoryTotal = currentMovies.length;
+      const isPaginated = categoryTotal >= 40;
+      const PAGE_SIZE = 40;
+      const totalPages = isPaginated ? Math.ceil(categoryTotal / PAGE_SIZE) : 1;
+      const validPage = Math.min(Math.max(1, categoryPage), totalPages);
+      const displayMovies = isPaginated
+        ? currentMovies.slice((validPage - 1) * PAGE_SIZE, validPage * PAGE_SIZE)
+        : currentMovies;
+
+      return (
+        <>
+          <div className="section-title" style={{ marginTop: 8, marginBottom: 8 }}>
+            <h3>{active?.name}</h3>
+            <span style={{ fontSize: 12, color: '#8f9aaa' }}>
+              {isPaginated ? `第 ${validPage} / ${totalPages} 页 · 本类共 ${categoryTotal} 部` : `${categoryTotal} 部内容`}
+            </span>
+          </div>
+
+          <div className="movie-grid">
+            {displayMovies.map((movie, index) => (
+              <MovieCard key={movie.contentId ? `${movie.contentId}_cat_${index}` : `cat_${index}`} movie={movie} onClick={onMovie} />
+            ))}
+          </div>
+
+          {/* 40 个之后开启分页控件 */}
+          {isPaginated && (
+            <div className="category-pagination-bar">
+              <button
+                type="button"
+                className="category-pagination-btn"
+                disabled={validPage <= 1}
+                onClick={() => {
+                  setCategoryPage(p => Math.max(1, p - 1));
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 380, behavior: 'smooth' });
+                }}
+              >
+                上一页
+              </button>
+              <span className="category-pagination-info">
+                第 {validPage} / {totalPages} 页 (共 {categoryTotal} 部不重复内容)
+              </span>
+              <button
+                type="button"
+                className="category-pagination-btn"
+                disabled={validPage >= totalPages}
+                onClick={() => {
+                  setCategoryPage(p => Math.min(totalPages, p + 1));
+                  if (typeof window !== 'undefined') window.scrollTo({ top: 380, behavior: 'smooth' });
+                }}
+              >
+                下一页
+              </button>
+            </div>
+          )}
+
+          {/* 持续加载按钮：未满40个时加载至40个；40个之后用户仍可一直点击，源源不断获取同一类别不重复内容 */}
+          <div className="continuous-load-section" style={{ marginTop: isPaginated ? 8 : 16 }}>
+            <button
+              type="button"
+              className={'continuous-load-btn' + (isPaginated ? ' secondary' : '')}
+              disabled={movieCategoryLoading}
+              onClick={() => {
+                onLoadMoreCategory?.(active, Math.floor(categoryTotal / 12) + 2);
+                if (isPaginated && validPage === totalPages) {
+                  setCategoryPage(totalPages + 1);
+                }
+              }}
+            >
+              <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
+              <span>
+                {movieCategoryLoading
+                  ? '正在持续抓取新内容…'
+                  : isPaginated
+                  ? `持续加载下一批“${active.name}” (源源不断精彩好片)`
+                  : `持续加载“${active.name}”更多内容 (已加载 ${categoryTotal} / 40 部)`}
+              </span>
+            </button>
+            <p className="continuous-load-tip">
+              {isPaginated
+                ? `可一直点击持续加载，源源不断获取同一类别全新不重复内容 (当前已累计 ${categoryTotal} 部)`
+                : `点击持续加载同类别全新内容，严格去重不重复，满 40 部后开启分页`}
+            </p>
+          </div>
+
+          <div style={{ textAlign: 'center', margin: '4px 0 24px' }}>
+            <button
+              className="secondary"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => {
+                pageStateStore.patch('movies', { category: active.name, page: 1 });
+                onTab('movies');
+              }}
+            >
+              在影视库中按年份与地区筛选“{active.name}”
+            </button>
+          </div>
+        </>
+      );
+    })() : (
     <MovieEmpty compact text={`“${active?.name || '当前分类'}”暂无内容，正在连接影视源`} />
   )}
 
@@ -477,15 +595,30 @@ function MovieSourcePill({ sources=[], selectedSource, onChange }){
   );
 }
 
-function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource,state,setState,onMovie,onPlay,onSearch,recordSearch,movieCategories=[],movieActiveCategory,movieCategoryLoading,onLoadMovieCategory}){
+function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource,state,setState,onMovie,onPlay,onSearch,recordSearch,movieCategories=[],movieActiveCategory,movieCategoryLoading,onLoadMovieCategory,onLoadMoreCategory}){
  const home=useMemo(()=>movieService.getHome({movies}),[movies]);
  const movieSources=sources.filter(source=>source.sourceType==='movie'&&source.enabled!==false);
  const selectedSource=sources.find(s=>s.sourceId===selectedSourceId) || movieSources[0] || null;
 
+ const PREFERRED_CAT_ORDER = ['电影', '电视剧', '动漫', '综艺', '短剧', '全部'];
  const rawCategories = movieCategories.filter(item=>!item.sourceId||item.sourceId===selectedSourceId);
- const categories = rawCategories.some(c=>c.name==='全部'||c.id==='all')
+ const categoriesPool = rawCategories.some(c=>c.name==='全部'||c.id==='all')
    ? rawCategories
    : [{ id:'all', name:'全部', sourceId:selectedSourceId }, ...rawCategories];
+
+ const categories = useMemo(() => {
+   const list = [];
+   const seen = new Set();
+   for (const name of PREFERRED_CAT_ORDER) {
+     const match = categoriesPool.find(c => c.name === name);
+     if (match) { list.push(match); seen.add(match.name); }
+     else if (name !== '全部') { list.push({ id: name, name }); seen.add(name); }
+   }
+   for (const c of categoriesPool) {
+     if (!seen.has(c.name)) { list.push(c); seen.add(c.name); }
+   }
+   return list;
+ }, [categoriesPool]);
 
  const [queryInput,setQueryInput]=useState('');
 
@@ -497,7 +630,7 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
   onSearch?.(keyword);
  };
 
- const activeCategory = movieActiveCategory || categories.find(c => c.name === state.category) || categories[0] || { id: 'all', name: '全部' };
+ const activeCategory = movieActiveCategory || categories.find(c => c.name === (state.category || '电影')) || categories[0] || { id: 'movie', name: '电影' };
  const isAll = !activeCategory || activeCategory.id === 'all' || activeCategory.name === '全部';
 
  const filteredMovies = useMemo(() => {
@@ -519,7 +652,7 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
    return list;
  }, [movies, isAll, activeCategory, state.filters, state.sort]);
 
- const pageSize = Math.max(1, state.pageSize || 24);
+ const pageSize = Math.max(1, state.pageSize || 40);
  const currentPage = Math.max(1, state.page || 1);
  const totalPages = Math.max(1, Math.ceil(filteredMovies.length / pageSize));
  const pagedMovies = filteredMovies.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -606,6 +739,30 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
         <button disabled={currentPage <= 1} onClick={() => handlePageChange(currentPage - 1)}>上一页</button>
         <span style={{ fontSize: 13, color: '#8f9aaa' }}>第 {currentPage} / {totalPages} 页 (共 {filteredMovies.length} 部)</span>
         <button disabled={currentPage >= totalPages} onClick={() => handlePageChange(currentPage + 1)}>下一页</button>
+      </div>
+
+      <div className="continuous-load-section" style={{ marginTop: 10 }}>
+        <button
+          type="button"
+          className="continuous-load-btn secondary"
+          disabled={movieCategoryLoading}
+          onClick={() => {
+            onLoadMoreCategory?.(activeCategory, Math.floor(filteredMovies.length / 12) + 2);
+            if (currentPage === totalPages) {
+              handlePageChange(totalPages + 1);
+            }
+          }}
+        >
+          <RefreshCw size={16} className={movieCategoryLoading ? 'spin' : ''} />
+          <span>
+            {movieCategoryLoading
+              ? '正在抓取新内容…'
+              : `持续加载下一批“${activeCategory.name}” (源源不断精彩好片)`}
+          </span>
+        </button>
+        <p className="continuous-load-tip">
+          可一直点击持续加载，源源不断获取同一类别全新不重复内容 (已累计 {filteredMovies.length} 部)
+        </p>
       </div>
     </>
   ) : (

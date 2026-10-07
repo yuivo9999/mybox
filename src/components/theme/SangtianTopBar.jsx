@@ -35,7 +35,17 @@ export function SangtianTopBar({
 
   return (
     <header className="sangtian-topbar">
-      <div className="sangtian-topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="sangtian-topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {onBack && (
+          <button
+            className="sangtian-icon-btn"
+            aria-label="返回上一页"
+            onClick={onBack}
+            title="返回"
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
         <button
           className="sangtian-icon-btn"
           aria-label="打开菜单"

@@ -265,22 +265,36 @@ export function SangtianPlayerWindow({
     return () => window.clearInterval(timer);
   }, []);
 
-  const totalStreams = isLive && activeChannel?.streams?.length ? activeChannel.streams.length : 1;
-  const currentStreamNum = (activeStreamIndex ?? 0) + 1;
-  const formattedStreamCounter = `< ${String(currentStreamNum).padStart(2, '0')}/${String(totalStreams).padStart(2, '0')} >`;
+  const availableStreams = (activeChannel?.streams && activeChannel.streams.length > 0)
+    ? activeChannel.streams
+    : (candidates && candidates.length > 0)
+    ? candidates
+    : [];
+  const totalStreams = isLive && availableStreams.length > 0 ? availableStreams.length : 1;
+  const currentStreamNum = Math.min(totalStreams, Math.max(1, (activeStreamIndex ?? 0) + 1));
 
   const handlePrevStream = (e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     if (!totalStreams || totalStreams <= 1) return;
     const prev = activeStreamIndex > 0 ? activeStreamIndex - 1 : totalStreams - 1;
     onSwitchStreamIndex?.(prev);
+    const cand = candidates?.[prev];
+    if (cand?.candidateId) {
+      onSelectCandidate?.(cand.candidateId);
+      onSwitchCandidate?.(cand.candidateId);
+    }
   };
 
   const handleNextStream = (e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     if (!totalStreams || totalStreams <= 1) return;
     const next = activeStreamIndex + 1 < totalStreams ? activeStreamIndex + 1 : 0;
     onSwitchStreamIndex?.(next);
+    const cand = candidates?.[next];
+    if (cand?.candidateId) {
+      onSelectCandidate?.(cand.candidateId);
+      onSwitchCandidate?.(cand.candidateId);
+    }
   };
 
   const handleCopyLink = () => {
@@ -536,7 +550,14 @@ export function SangtianPlayerWindow({
                 <span>{error || '当前播放链路没有可用候选。'}</span>
                 <div className="sangtian-error-btns">
                   <button className="sangtian-btn-red" onClick={onRetry}>重新播放</button>
-                  {onSwitchCandidate && <button className="sangtian-btn-sand" onClick={onSwitchCandidate}>切换备用线路</button>}
+                  {onSwitchCandidate && (
+                    <button
+                      className="sangtian-btn-sand"
+                      onClick={() => onSwitchCandidate()}
+                    >
+                      切换备用线路
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -722,7 +743,7 @@ export function SangtianPlayerWindow({
                       onClick={(e) => { e.stopPropagation(); setShowRightSidebar(!showRightSidebar); setShowLeftSidebar(false); setShowEpisodeSidebar(false); }}
                     >
                       <SlidersHorizontal size={15} />
-                      <span>{isLive ? '解码' : '线路设置'}</span>
+                      <span>{isLive ? '线路与解码' : '线路设置'}</span>
                     </button>
 
                     {/* Lock Screen Button */}
@@ -874,25 +895,48 @@ export function SangtianPlayerWindow({
                       )}
 
                       {/* Live Stream Switcher */}
-                      {isLive && activeChannel?.streams?.length > 1 && (
-                        <div className="settings-group">
-                          <label>直播换线 ({activeChannel.streams.length})</label>
-                          <div className="settings-btn-grid vertical">
-                            {activeChannel.streams.map((stream, idx) => (
-                              <button
-                                key={stream.streamId || idx}
-                                className={`setting-btn ${activeStreamIndex === idx ? 'active' : ''}`}
-                                onClick={() => {
-                                  onSwitchStreamIndex?.(idx);
-                                  setShowRightSidebar(false);
-                                }}
-                              >
-                                {stream.label || `线路 ${idx + 1}`} {stream.protocol ? `· ${stream.protocol}` : ''}
-                              </button>
-                            ))}
+                      {isLive && (() => {
+                        const liveStreams = (activeChannel?.streams && activeChannel.streams.length > 0)
+                          ? activeChannel.streams
+                          : (candidates && candidates.length > 0)
+                          ? candidates.map((c, i) => ({
+                              streamId: c.candidateId || `stream-${i}`,
+                              label: c.metadata?.label || c.label || (c.index != null ? `线路 ${c.index + 1}` : `线路 ${i + 1}`),
+                              protocol: c.protocol || '',
+                              candidateId: c.candidateId,
+                            }))
+                          : [];
+                        if (!liveStreams.length) return null;
+                        return (
+                          <div className="settings-group">
+                            <label>直播换线 ({liveStreams.length})</label>
+                            <div className="settings-btn-grid vertical">
+                              {liveStreams.map((stream, idx) => {
+                                const isCurrent = activeStreamIndex === idx || (stream.candidateId && candidate?.candidateId === stream.candidateId);
+                                return (
+                                  <button
+                                    key={stream.streamId || stream.candidateId || idx}
+                                    className={`setting-btn ${isCurrent ? 'active' : ''}`}
+                                    onClick={() => {
+                                      onSwitchStreamIndex?.(idx);
+                                      if (stream.candidateId) {
+                                        onSelectCandidate?.(stream.candidateId);
+                                        onSwitchCandidate?.(stream.candidateId);
+                                      } else if (candidates?.[idx]?.candidateId) {
+                                        onSelectCandidate?.(candidates[idx].candidateId);
+                                        onSwitchCandidate?.(candidates[idx].candidateId);
+                                      }
+                                      setShowRightSidebar(false);
+                                    }}
+                                  >
+                                    {stream.label || `线路 ${idx + 1}`} {stream.protocol ? `· ${stream.protocol}` : ''}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       <div className="settings-group">
                         <label>解码内核 (Decoder Engine)</label>
@@ -988,9 +1032,32 @@ export function SangtianPlayerWindow({
                   {isLive && (
                     <div className="sangtian-fullscreen-live-centerbar">
                       <div className="stream-switcher-badge">
-                        <button type="button" className="stream-nav-btn" onClick={handlePrevStream}>‹</button>
-                        <span className="stream-counter-text">{formattedStreamCounter}</span>
-                        <button type="button" className="stream-nav-btn" onClick={handleNextStream}>›</button>
+                        <button
+                          type="button"
+                          className="stream-nav-btn"
+                          onClick={handlePrevStream}
+                          title="切换到上一条线路"
+                          disabled={totalStreams <= 1}
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="stream-counter-text-btn"
+                          onClick={handleNextStream}
+                          title="点击切换到下一条线路"
+                        >
+                          <span>线路 {currentStreamNum} / {totalStreams}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="stream-nav-btn"
+                          onClick={handleNextStream}
+                          title="切换到下一条线路"
+                          disabled={totalStreams <= 1}
+                        >
+                          <ChevronRight size={14} />
+                        </button>
                       </div>
                       <span className="live-channel-title-center">
                         {activeChannel?.name || '直播频道'}
@@ -1044,11 +1111,6 @@ export function SangtianFloatingBar({
   currentTime = 0,
   duration = 0,
   isLive = false,
-  candidateLabel = '',
-  candidates = [],
-  currentCandidateId,
-  onSelectCandidate,
-  onOpenSourceModal,
 }) {
   const rates = [0.75, 1.0, 1.25, 1.5, 2.0];
 
@@ -1072,44 +1134,36 @@ export function SangtianFloatingBar({
     return `${h ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const currentCand = candidates.find(c => c.candidateId === currentCandidateId) || candidates[0];
-  const displayLabel = candidateLabel || currentCand?.metadata?.label || currentCand?.label || '✦ 蓝光4K · 线路1';
   const timeString = `${formatTime(currentTime)} / ${formatTime(duration)}`;
 
   return (
     <div className="sangtian-floating-bar">
-      <div className="sangtian-zoom-controls">
-        <button
-          className="sangtian-zoom-btn"
-          onClick={() => handleCycleSpeed('down')}
-          title="减速播放"
-        >
-          -
-        </button>
-        <span className="sangtian-speed-label">{playbackRate}x</span>
-        <button
-          className="sangtian-zoom-btn"
-          onClick={() => handleCycleSpeed('up')}
-          title="加速播放"
-        >
-          +
-        </button>
-      </div>
+      {!isLive && (
+        <div className="sangtian-zoom-controls">
+          <button
+            className="sangtian-zoom-btn"
+            onClick={() => handleCycleSpeed('down')}
+            title="减速播放"
+          >
+            -
+          </button>
+          <span className="sangtian-speed-label">{playbackRate}x</span>
+          <button
+            className="sangtian-zoom-btn"
+            onClick={() => handleCycleSpeed('up')}
+            title="加速播放"
+          >
+            +
+          </button>
+        </div>
+      )}
 
       <div
         className="sangtian-model-pill"
-        onClick={onOpenSourceModal ? onOpenSourceModal : () => {
-          if (candidates.length > 1) {
-            const idx = candidates.findIndex(c => c.candidateId === currentCandidateId);
-            const nextIdx = (idx + 1) % candidates.length;
-            onSelectCandidate?.(candidates[nextIdx].candidateId);
-          }
-        }}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
+        style={{ cursor: 'default', userSelect: 'none' }}
       >
         <Sparkles size={14} className="sparkle-gold" />
-        <span className="model-pill-text">{isLive ? displayLabel : timeString}</span>
-        {isLive && <ChevronDown size={14} style={{ opacity: 0.7, marginLeft: 4 }} />}
+        <span className="model-pill-text">{timeString}</span>
       </div>
     </div>
   );
@@ -1140,7 +1194,7 @@ export function SangtianConsoleCard({
   onFav,
   isFav = false,
 }) {
-  const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info'
+  const [activeTab, setActiveTab] = useState('episodes'); // 'episodes' | 'info' | 'sources'
   const [copiedLink, setCopiedLink] = useState(false);
   const [selectedLiveCat, setSelectedLiveCat] = useState('全部');
 
@@ -1259,7 +1313,13 @@ export function SangtianConsoleCard({
                             key={c.candidateId}
                             type="button"
                             className={`quick-line-pill ${isCurrentLine ? 'active' : ''}`}
-                            onClick={() => onSelectCandidate?.(c.candidateId)}
+                            onClick={() => {
+                              onSelectCandidate?.(c.candidateId);
+                              onSwitchCandidate?.(c.candidateId);
+                              if (isLive) {
+                                onSwitchStreamIndex?.(index);
+                              }
+                            }}
                           >
                             {lineName}
                           </button>
@@ -1270,33 +1330,29 @@ export function SangtianConsoleCard({
                 )}
 
                 {/* Channels Grid */}
-                {filteredLiveChannels.length > 0 ? (
-                  <div className="sangtian-channel-selection-grid">
-                    {filteredLiveChannels.map((item) => {
-                      const isCurrent = item.channelId === activeItemId;
-                      return (
-                        <button
-                          key={item.channelId}
-                          type="button"
-                          className={`sangtian-channel-btn ${isCurrent ? 'active' : ''}`}
-                          onClick={() => onSelectRelated?.(item)}
-                        >
-                          <div className="channel-logo-mini">
-                            {item.logo ? <img src={item.logo} alt="" /> : <Radio size={14} />}
-                          </div>
-                          <div className="channel-info-mini">
-                            <span className="channel-name-mini">{item.name}</span>
-                            <span className="channel-sub-mini">
-                              {isCurrent ? '● 正在播放' : (item.category || '直播频道')}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="sangtian-empty-text">当前分类暂无频道</div>
-                )}
+                <div className="sangtian-channel-selection-grid">
+                  {filteredLiveChannels.map((item) => {
+                    const isCurrent = item.channelId === activeItemId;
+                    return (
+                      <button
+                        key={item.channelId}
+                        type="button"
+                        className={`sangtian-channel-btn ${isCurrent ? 'active' : ''}`}
+                        onClick={() => onSelectRelated?.(item)}
+                      >
+                        <div className="channel-logo-mini">
+                          {item.logo ? <img src={item.logo} alt="" /> : <Radio size={14} />}
+                        </div>
+                        <div className="channel-info-mini">
+                          <span className="channel-name-mini">{item.name}</span>
+                          <span className="channel-sub-mini">
+                            {isCurrent ? '● 正在播放' : (item.category || '直播频道')}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ) : episodes.length > 0 ? (
               <div className="sangtian-episode-grid">

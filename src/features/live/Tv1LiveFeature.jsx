@@ -96,7 +96,32 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
           videoRef={videoRef} 
           status={activeStream ? 'playing' : 'idle'} 
           isLive 
-          candidate={{ label: activeStream?.label || '默认线路', url: activeStream?.url, protocol: activeStream?.protocol || 'HLS/M3U8', sourceId: activeSource?.sourceId }} 
+          candidate={{ label: activeStream?.label || '默认线路', url: activeStream?.url, protocol: activeStream?.protocol || 'HLS/M3U8', sourceId: activeSource?.sourceId, candidateId: activeStream?.streamId }} 
+          candidates={activeChannel.streams.map((stream, idx) => ({
+            candidateId: stream.streamId || `stream-${idx}`,
+            label: stream.label || `线路 ${idx + 1}`,
+            mediaUrl: stream.url,
+            protocol: stream.protocol || 'HLS/M3U8',
+            index: idx,
+          }))}
+          channels={visible}
+          activeChannel={activeChannel}
+          activeStreamIndex={streamIndex}
+          onSelectChannel={chan => { setSelectedChannelId(chan.channelId); setStreamIndex(0); }}
+          onSwitchStreamIndex={setStreamIndex}
+          onSelectCandidate={id => {
+            const idx = activeChannel.streams.findIndex((s, i) => s.streamId === id || `stream-${i}` === id || s.url === id);
+            if (idx >= 0) setStreamIndex(idx);
+          }}
+          onSwitchCandidate={id => {
+            if (typeof id === 'string') {
+              const idx = activeChannel.streams.findIndex((s, i) => s.streamId === id || `stream-${i}` === id || s.url === id);
+              if (idx >= 0) { setStreamIndex(idx); return; }
+            }
+            if (activeChannel.streams.length > 1) {
+              setStreamIndex(prev => (prev + 1) % activeChannel.streams.length);
+            }
+          }}
           terminalTag={`TV1 · ${activeChannel.name}`}
           onStop={() => {
             if (videoRef.current) {
