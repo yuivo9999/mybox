@@ -26,6 +26,8 @@ function nativeAvailable() {
 
 export function createPlaybackCore(task,hooks={}) {
  let player=null,playerElement=null,resourceRelease=null,sessionId=null,released=false;
+ let operationEpoch=0;
+ const isOperationCurrent=(epoch)=>!released&&epoch===operationEpoch;
  const eventBus=createPlaybackEventBus();
  const stateMachine=createPlaybackStateMachine(task.request.kind??PlaybackKind.VOD);
  const networkPolicy=createPlaybackNetworkPolicy(hooks.networkPolicy);
@@ -64,6 +66,7 @@ export function createPlaybackCore(task,hooks={}) {
  };
 
  const attachPlayer=(element)=>{
+  operationEpoch+=1;
   player?.release?.(); playerElement=element;
   if(nativeAvailable()) player=createNativePlayerAdapter({onEvent:handlePlayerEvent});
   else if(element) player=createHtml5PlayerAdapter(element,{onEvent:handlePlayerEvent});
@@ -103,8 +106,9 @@ export function createPlaybackCore(task,hooks={}) {
   }
  }
 
- const playResolved=async(input)=>{
+ const playResolved=async(input,epoch)=>{
   if(!player)throw new Error('PLAYER_ADAPTER_NOT_ATTACHED');
+  if(!isOperationCurrent(epoch))return null;
   const playbackSettings = userDataService.getSettings().playback;
   const defaultEngine = task.request.kind === PlaybackKind.LIVE ? playbackSettings.livePlayer : playbackSettings.moviePlayer;
   const playerHint = {
@@ -129,14 +133,26 @@ export function createPlaybackCore(task,hooks={}) {
    ),
   };
   await Promise.resolve(player.load({ ...input, playerHint }));
+  if(!isOperationCurrent(epoch))return null;
   await Promise.resolve(player.prepare());
+  if(!isOperationCurrent(epoch))return null;
   const startPosition=Number(task.request.metadata?.startPositionSeconds??0);
   if(task.request.kind===PlaybackKind.VOD&&startPosition>0)player.seek(startPosition);
+  if(!isOperationCurrent(epoch))return null;
   if(input.playerHint?.autoplay!==false)await player.play();
+  if(!isOperationCurrent(epoch))return null;
   return input;
  };
 
- const resolveAndLoad=async(candidate=task.currentCandidate,options={})=>{const input=await resolve(candidate,options);if(!input){return null;}await playResolved(input);networkPolicy.resetRetry();return input;};
+ const resolveAndLoad=async(candidate=task.currentCandidate,options={})=>{
+  const epoch=++operationEpoch;
+  const input=await resolve(candidate,options);
+  if(!input||!isOperationCurrent(epoch))return null;
+  const loaded=await playResolved(input,epoch);
+  if(!loaded||!isOperationCurrent(epoch))return null;
+  networkPolicy.resetRetry();
+  return loaded;
+ };
 
  const failAndResolve=(error,code=PlaybackFailureCode.UNKNOWN)=>{
   const classified=classifyPlaybackError(error,{code});const next=task.fail(error,classified);hooks.onCandidateChange?.(next);networkPolicy.resetRetry();
@@ -145,9 +161,12 @@ export function createPlaybackCore(task,hooks={}) {
  };
 
  async function recover(error,code){
+  const recoverEpoch=operationEpoch;
+  const recoverCandidateId=task.currentCandidateId;
   if(task.request.kind===PlaybackKind.LIVE && networkPolicy.shouldReconnect({code})){
    transition(PlayerState.RECONNECTING);emit('reconnecting',{candidate:task.currentCandidate,reconnectCount:networkPolicy.reconnectCount});
    await new Promise(r=>setTimeout(r,networkPolicy.getReconnectDelay()));
+   if(!isOperationCurrent(recoverEpoch)||task.currentCandidateId!==recoverCandidateId)return false;
    try{await resolveAndLoad(task.currentCandidate);return true;}catch{}
   }
   if(networkPolicy.shouldRetry({code})){
@@ -174,15 +193,15 @@ export function createPlaybackCore(task,hooks={}) {
   pause(){return player?.pause();},seek(s){return player?.seek(s);},setPlaybackRate(r){return player?.setPlaybackRate?.(r);},setVolume(v){return player?.setVolume(v);},
   getAudioTracks(){return player?.getAudioTracks?.()??[];},getSubtitleTracks(){return player?.getSubtitleTracks?.()??[];},selectAudioTrack(id){return player?.selectAudioTrack?.(id)??false;},selectSubtitleTrack(id){return player?.selectSubtitleTrack?.(id)??false;},getQualities(){return player?.getQualities?.()??[];},selectQuality(id){return player?.selectQuality?.(id)??false;},
   markPlaying(){return task.markPlaying();},
-  retry(options={}){if(!networkPolicy.shouldRetry({code:options.code??'network'}))return null;const candidate=task.retry(options);if(candidate)void resolveAndLoad(candidate);return candidate;},
+  retry(options={}){if(!networkPolicy.shouldRetry({code:options.code??'network'}))return null;operationEpoch+=1;const candidate=task.retry(options);if(candidate)void resolveAndLoad(candidate);return candidate;},
   fail(error,code=PlaybackFailureCode.UNKNOWN){return failAndResolve(error,code);},
-  switchCandidate(candidateId){const next=task.switchCandidate(candidateId);hooks.onCandidateChange?.(next);if(next){networkPolicy.reset();transition(PlayerState.LOADING);void resolveAndLoad(next).catch(e=>hooks.onPlayerError?.({error:e,candidate:next}));}return next;},
+  switchCandidate(candidateId){operationEpoch+=1;const next=task.switchCandidate(candidateId);hooks.onCandidateChange?.(next);if(next){networkPolicy.reset();transition(PlayerState.LOADING);void resolveAndLoad(next).catch(e=>hooks.onPlayerError?.({error:e,candidate:next}));}return next;},
   switchEpisode(episodeId,candidate=null,startPositionSeconds=0){emit('episodeChanged',{episodeId,startPositionSeconds});if(candidate)return this.switchCandidate(candidate.candidateId);return episodeId;},
   async handleAppState(state){
    if(state==='background'){if(task.request.kind===PlaybackKind.VOD){await player?.pause?.();}else{player?.pause?.();}}
    if(state==='foreground'&&task.request.kind===PlaybackKind.LIVE&&task.currentCandidate){try{await resolveAndLoad(task.currentCandidate);}catch(e){void recover(e,PlaybackFailureCode.NETWORK);}}
   },
-  stop(){player?.stop?.();task.stop();resourceRelease?.();resourceRelease=null;playbackTaskRegistry.unregister(task.request.taskId);},
-  release(){if(released)return;released=true;try{player?.release?.();}finally{player=null;resourceRelease?.();resourceRelease=null;playbackSessionManager.clear(sessionId);sessionId=null;unsubscribe();eventBus.clear();task.release();playbackTaskRegistry.unregister(task.request.taskId);}}
+  stop(){operationEpoch+=1;player?.stop?.();task.stop();resourceRelease?.();resourceRelease=null;playbackTaskRegistry.unregister(task.request.taskId);},
+  release(){if(released)return;operationEpoch+=1;released=true;try{player?.release?.();}finally{player=null;resourceRelease?.();resourceRelease=null;playbackSessionManager.clear(sessionId);sessionId=null;unsubscribe();eventBus.clear();task.release();playbackTaskRegistry.unregister(task.request.taskId);}}
  };
 }
