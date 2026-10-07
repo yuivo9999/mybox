@@ -66,9 +66,7 @@ function Main({tab,movies,channels,favorites,history,sources,searches,progress,s
    <SettingMenu icon={Radio} title="切换顺序" value={order} onClick={()=>updatePlayback({fallbackOrder:rotateOrder(playback.fallbackOrder)})}/>
    <InfoCard title="可选播放方案" text={PLAYBACK_SCHEMES.map(item=>item.label).join(' · ') + '。默认方案为 IJKPlayer 硬解；点击默认影视/直播播放方案可循环选择。Native 仍只作为内部故障兜底，不作为用户播放方案入口。'}/>
    <SectionTitle title="解码设置"/>
-   <SettingMenu icon={Radio} title="当前影视方案" value={movieScheme.label} onClick={()=>applyScheme('movie',nextScheme('movie').id)}/>
-   <SettingMenu icon={Radio} title="当前直播方案" value={liveScheme.label} onClick={()=>applyScheme('live',nextScheme('live').id)}/>
-   <InfoCard title="解码说明" text="用户可选择 IJKPlayer 硬解、ExoPlayer 硬解、ExoPlayer 软解、IJKPlayer 软解四种方案。应用内部仍保留 Native/System 作为不可见的最后兜底；切换方案会立即作用于对应影视或直播播放。"/>
+   <InfoCard title="四种用户播放方案" text="IJKPlayer 硬解 · ExoPlayer 硬解 · ExoPlayer 软解 · IJKPlayer 软解。默认使用 IJKPlayer 硬解；影视与直播分别记忆各自方案，播放器内的“线路与解码”入口也可随时切换。Native/System 仅作为内部故障兜底。"/>
    <SectionTitle title="线路设置"/>
    <SettingMenu icon={Radio} title="默认影视线路" value={sourceSettingLabel(sources,'movie',settings?.defaultMovieSource)} onClick={()=>onUpdateSettings?.({defaultMovieSource:nextSource(sources,'movie',settings?.defaultMovieSource)})}/>
    <SettingMenu icon={Radio} title="默认直播线路" value={sourceSettingLabel(sources,'live',settings?.defaultLiveSource)} onClick={()=>onUpdateSettings?.({defaultLiveSource:nextSource(sources,'live',settings?.defaultLiveSource)})}/>
