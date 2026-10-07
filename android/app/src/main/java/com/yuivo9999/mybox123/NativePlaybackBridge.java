@@ -14,6 +14,7 @@ import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -95,6 +96,9 @@ public final class NativePlaybackBridge {
     private boolean wantPlay = false;
     private boolean released = false;
     private long lastPositionMs = 0L;
+    // Monotonically increases for every load/fallback. Native callbacks from an
+    // obsolete engine instance must never mutate the newly selected playback.
+    private long playbackGeneration = 0L;
 
     private ExoPlayer exoPlayer;
     private IjkMediaPlayer ijkPlayer;
@@ -165,6 +169,7 @@ public final class NativePlaybackBridge {
             JSONObject input = new JSONObject(payload == null ? "{}" : payload);
             url = input.optString("url", "");
             if (url.isEmpty()) return error("PLAYER_URL_REQUIRED");
+            playbackGeneration += 1L;
             mediaProtocol = normalizeProtocol(input.optString("protocol", ""), url);
 
             headers = readMap(input.optJSONObject("headers"));
@@ -533,6 +538,7 @@ public final class NativePlaybackBridge {
     }
 
     private void createExo() {
+        final long generation = playbackGeneration;
         DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory();
         if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
         if (!cookies.isEmpty()) {
@@ -574,6 +580,7 @@ public final class NativePlaybackBridge {
                     String decoderName,
                     long initializedTimestampMs,
                     long initializationDurationMs) {
+                if (generation != playbackGeneration || released) return;
                 actualExoDecoderName = decoderName == null ? "" : decoderName;
                 emit("decoderChanged", decoderObject());
             }
@@ -581,6 +588,7 @@ public final class NativePlaybackBridge {
 
         exoPlayer.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
+                if (generation != playbackGeneration || released) return;
                 if (state == Player.STATE_BUFFERING) emit("bufferingStart", null);
                 if (state == Player.STATE_READY) {
                     prepared = true;
@@ -593,18 +601,25 @@ public final class NativePlaybackBridge {
             }
 
             @Override public void onIsPlayingChanged(boolean isPlaying) {
+                if (generation != playbackGeneration || released) return;
                 emit(isPlaying ? "playing" : "paused", null);
             }
 
             @Override public void onPlayerError(PlaybackException error) {
-                fallbackOrError("EXO_ERROR:" + safeMessage(error));
+                if (generation != playbackGeneration || released) return;
+                fallbackOrError("EXO_ERROR:" + safeMessage(error), generation);
             }
         });
 
         // The bridge owns the TextureView Surface lifecycle for all engines.
         // Do not also call setVideoTextureView(), which installs a second
         // SurfaceTexture lifecycle on the same TextureView.
-        exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
+        MediaItem.Builder mediaItemBuilder = new MediaItem.Builder().setUri(Uri.parse(url));
+        // Some live HLS endpoints do not end in .m3u8 (for example /pltv/ or
+        // /tvod/ URLs). Explicitly declare the HLS MIME type so Media3 cannot
+        // misclassify them as progressive HTTP and break the segment timeline.
+        if (isHlsProtocol()) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8);
+        exoPlayer.setMediaItem(mediaItemBuilder.build());
         attachSurface();
     }
 
@@ -627,6 +642,7 @@ public final class NativePlaybackBridge {
     }
 
     private void createIjk() throws IOException {
+        final long generation = playbackGeneration;
         ijkPlayer = new IjkMediaPlayer();
         applyIjkProfile();
         if (!headers.isEmpty()) ijkPlayer.setDataSource(url, headers);
@@ -636,6 +652,7 @@ public final class NativePlaybackBridge {
         }
 
         ijkPlayer.setOnPreparedListener(mp -> {
+            if (generation != playbackGeneration || released) return;
             // IJK can silently fall back to FFmpeg when MediaCodec selection fails.
             // Treat that as a hardware-decoder failure when hardware was requested,
             // so Live goes directly to Exo and VOD gets the explicit IJK software step.
@@ -643,11 +660,11 @@ public final class NativePlaybackBridge {
                 try {
                     int actual = ijkPlayer.getVideoDecoder();
                     if (actual != 2) {
-                        fallbackOrError("IJK_HARDWARE_NOT_ACTIVE:" + actual);
+                        fallbackOrError("IJK_HARDWARE_NOT_ACTIVE:" + actual, generation);
                         return;
                     }
                 } catch (Throwable e) {
-                    fallbackOrError("IJK_HARDWARE_PROBE:" + safeMessage(e));
+                    fallbackOrError("IJK_HARDWARE_PROBE:" + safeMessage(e), generation);
                     return;
                 }
             }
@@ -656,15 +673,17 @@ public final class NativePlaybackBridge {
             emit("decoderChanged", decoderObject());
             emit("prepared", null);
             if (wantPlay) {
-                try { ijkPlayer.start(); } catch (Throwable e) { fallbackOrError("IJK_PLAY:" + safeMessage(e)); }
+                try { ijkPlayer.start(); } catch (Throwable e) { fallbackOrError("IJK_PLAY:" + safeMessage(e), generation); }
             }
         });
-        ijkPlayer.setOnCompletionListener(mp -> emit("completed", null));
+        ijkPlayer.setOnCompletionListener(mp -> { if (generation == playbackGeneration && !released) emit("completed", null); });
         ijkPlayer.setOnBufferingUpdateListener((mp, percent) -> {
+            if (generation != playbackGeneration || released) return;
             if (percent < 100) emit("buffering", null);
         });
         ijkPlayer.setOnErrorListener((mp, what, extra) -> {
-            fallbackOrError("IJK_ERROR:" + what + ":" + extra);
+            if (generation != playbackGeneration || released) return;
+            fallbackOrError("IJK_ERROR:" + what + ":" + extra, generation);
             return true;
         });
 
@@ -777,6 +796,7 @@ public final class NativePlaybackBridge {
     }
 
     private void createNative() throws IOException {
+        final long generation = playbackGeneration;
         nativePlayer = new MediaPlayer();
         nativePlayer.setAudioAttributes(new AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
@@ -784,17 +804,20 @@ public final class NativePlaybackBridge {
                 .build());
 
         nativePlayer.setOnPreparedListener(mp -> {
+            if (generation != playbackGeneration || released) return;
             prepared = true;
             emit("prepared", null);
             if (wantPlay) {
                 try { mp.start(); } catch (Throwable e) { emit("error", errorObject("NATIVE_PLAY:" + safeMessage(e))); }
             }
         });
-        nativePlayer.setOnCompletionListener(mp -> emit("completed", null));
+        nativePlayer.setOnCompletionListener(mp -> { if (generation == playbackGeneration && !released) emit("completed", null); });
         nativePlayer.setOnBufferingUpdateListener((mp, percent) -> {
+            if (generation != playbackGeneration || released) return;
             if (percent < 100) emit("buffering", null);
         });
         nativePlayer.setOnErrorListener((mp, what, extra) -> {
+            if (generation != playbackGeneration || released) return true;
             emit("error", errorObject("NATIVE_ERROR:" + what + ":" + extra));
             return true;
         });
@@ -833,11 +856,18 @@ public final class NativePlaybackBridge {
     }
 
     private synchronized String fallbackOrError(String reason) {
+        return fallbackOrError(reason, playbackGeneration);
+    }
+
+    private synchronized String fallbackOrError(String reason, long generation) {
+        if (generation != playbackGeneration || released) return ok("stale", true);
+
         if (ENGINE_IJK.equals(selectedEngine)
                 && "hardware".equals(decoderMode)
                 && livePlayback
                 && isIJKOnlyProtocol()
                 && fallbackEnabled) {
+            playbackGeneration += 1L;
             releaseCurrentEngine();
             decoderMode = "software";
             prepared = false;
@@ -875,6 +905,7 @@ public final class NativePlaybackBridge {
 
         if (engineIndex + 1 < engineOrder.size()) {
             lastPositionMs = currentPositionMs();
+            playbackGeneration += 1L;
             releaseCurrentEngine();
             engineIndex++;
             selectedEngine = engineOrder.get(engineIndex);
