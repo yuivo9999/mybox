@@ -110,11 +110,11 @@ export function createPlaybackCore(task,hooks={}) {
   if(!player)throw new Error('PLAYER_ADAPTER_NOT_ATTACHED');
   if(!isOperationCurrent(epoch))return null;
   const playbackSettings = userDataService.getSettings().playback;
-  const defaultEngine = task.request.kind === PlaybackKind.LIVE ? playbackSettings.livePlayer : playbackSettings.moviePlayer;
+  const defaultEngine = task.request.kind === PlaybackKind.LIVE ? (playbackSettings.livePlayer || 'ijk') : (playbackSettings.moviePlayer || 'ijk');
   const playerHint = {
    ...(input.playerHint ?? {}),
    engine: input.playerHint?.engine ?? defaultEngine,
-   decoder: input.playerHint?.decoder ?? playbackSettings.decoder?.[defaultEngine] ?? 'auto',
+   decoder: input.playerHint?.decoder ?? playbackSettings.decoder?.[defaultEngine] ?? 'hardware',
    decoderModes: input.playerHint?.decoderModes ?? playbackSettings.decoder ?? {},
    fallbackEnabled: input.playerHint?.fallbackEnabled ?? playbackSettings.fallbackEnabled,
    fallbackOrder: input.playerHint?.fallbackOrder ?? playbackSettings.fallbackOrder,
