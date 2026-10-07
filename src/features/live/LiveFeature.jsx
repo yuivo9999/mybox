@@ -191,6 +191,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setResolvedPlaybackInput(null);
     setPlaybackError('');
     setPlaybackStatus('loading');
+    setIsImmersive(true); // 激活沉浸播放卡片
 
     if (playbackControllerRef.current) {
       playbackControllerRef.current.resolveAndLoad(cand).catch(e => {

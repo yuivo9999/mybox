@@ -593,11 +593,36 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
  });
 
  const handleConfirmFilter = () => {
-   setAppliedFilters({ ...draftFilters });
-   setState({
-     page: 1,
-     filters: { ...draftFilters },
-   });
+  const filters = draftFilters;
+  const parts = [];
+  if (filters.startYear && filters.endYear) {
+    if (filters.startYear === filters.endYear) parts.push(filters.startYear);
+    else parts.push(`${filters.startYear}-${filters.endYear}`);
+  } else if (filters.startYear) {
+    parts.push(filters.startYear);
+  } else if (filters.endYear) {
+    parts.push(filters.endYear);
+  }
+
+  if (filters.regions && filters.regions !== '全部' && String(filters.regions).trim()) {
+    parts.push(filters.regions);
+  }
+  if (filters.types && filters.types !== '全部' && String(filters.types).trim()) {
+    parts.push(filters.types);
+  }
+
+  const keyword = parts.join(' ').trim();
+  if (keyword) {
+    pageStateStore.patch('search', { query: keyword });
+    recordSearch?.(keyword);
+    onSearch?.(keyword);
+  } else {
+    setAppliedFilters({ ...draftFilters });
+    setState({
+      page: 1,
+      filters: { ...draftFilters },
+    });
+  }
  };
 
  const submitSearch=()=>{
@@ -728,21 +753,21 @@ function MovieCatalog({movies=[],sources=[],selectedSourceId,onSelectMovieSource
 
     {/* 全部年份区间 */}
     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#151923', border: '1px solid #242a39', borderRadius: '8px', padding: '4px 8px', fontSize: '12px', color: '#c9d2e1' }}>
-      <span>年份区间:</span>
+      <span>年份:</span>
       <input
-        type="number"
+        type="text"
         placeholder="开始"
         value={draftFilters.startYear}
         onChange={e => setDraftFilters({ ...draftFilters, startYear: e.target.value })}
-        style={{ width: '52px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+        style={{ width: '55px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
       />
       <span>~</span>
       <input
-        type="number"
+        type="text"
         placeholder="结束"
         value={draftFilters.endYear}
         onChange={e => setDraftFilters({ ...draftFilters, endYear: e.target.value })}
-        style={{ width: '52px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
+        style={{ width: '55px', background: 'transparent', border: 'none', color: '#fff', fontSize: '12px', outline: 'none' }}
       />
     </div>
 

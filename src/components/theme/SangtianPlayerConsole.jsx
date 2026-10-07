@@ -1016,6 +1016,47 @@ export function SangtianPlayerWindow({
                   )}
                 </div>
 
+                {/* Middle Bottom Translucent Bar for Live (Moved up one row) */}
+                {isLive && (
+                  <div className="sangtian-fullscreen-live-centerbar" onClick={e => e.stopPropagation()} style={{ marginBottom: '12px', zIndex: 10 }}>
+                    <div className="stream-switcher-badge">
+                      <button
+                        type="button"
+                        className="stream-nav-btn"
+                        onClick={handlePrevStream}
+                        title="切换到上一条线路"
+                        disabled={totalStreams <= 1}
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="stream-counter-text-btn"
+                        onClick={handleNextStream}
+                        title="点击切换到下一条线路"
+                      >
+                        <span>线路 {currentStreamNum} / {totalStreams}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="stream-nav-btn"
+                        onClick={handleNextStream}
+                        title="切换到下一条线路"
+                        disabled={totalStreams <= 1}
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                    <span className="live-channel-title-center">
+                      {activeChannel?.name || '直播频道'}
+                    </span>
+                    <div className="live-realtime-clock">
+                      <span className="live-pill">● 直播</span>
+                      <span className="clock-digits">{clockTime}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Fullscreen Bottom Bar */}
                 <div className="sangtian-fullscreen-bottombar">
                   {!isLive && (
@@ -1039,47 +1080,6 @@ export function SangtianPlayerWindow({
                         <span>网络 {networkDownlink != null ? networkDownlink + ' Mbps' : '—'}</span>
                       </div>
                     </>
-                  )}
-
-                  {/* Middle Bottom Translucent Bar for Live */}
-                  {isLive && (
-                    <div className="sangtian-fullscreen-live-centerbar">
-                      <div className="stream-switcher-badge">
-                        <button
-                          type="button"
-                          className="stream-nav-btn"
-                          onClick={handlePrevStream}
-                          title="切换到上一条线路"
-                          disabled={totalStreams <= 1}
-                        >
-                          <ChevronLeft size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="stream-counter-text-btn"
-                          onClick={handleNextStream}
-                          title="点击切换到下一条线路"
-                        >
-                          <span>线路 {currentStreamNum} / {totalStreams}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="stream-nav-btn"
-                          onClick={handleNextStream}
-                          title="切换到下一条线路"
-                          disabled={totalStreams <= 1}
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
-                      <span className="live-channel-title-center">
-                        {activeChannel?.name || '直播频道'}
-                      </span>
-                      <div className="live-realtime-clock">
-                        <span className="live-pill">● 直播</span>
-                        <span className="clock-digits">{clockTime}</span>
-                      </div>
-                    </div>
                   )}
 
                   <div className="sangtian-fullscreen-actions">
@@ -1338,14 +1338,11 @@ export function SangtianConsoleCard({
                       padding: '6px 14px',
                       borderRadius: '8px',
                       background: 'rgba(217, 119, 6, 0.15)',
-                      border: '1px solid rgba(217, 119, 6, 0.35)',
                       color: '#f59e0b',
                       fontWeight: '800',
                       fontSize: '15px',
                       letterSpacing: '0.12em',
                       textShadow: 'none',
-                      WebkitTextStroke: '1px #000',
-                      boxShadow: '0 2px 5px rgba(0,0,0,0.25)',
                     }}
                   >
                     {actor}
@@ -1469,6 +1466,50 @@ export function SangtianConsoleCard({
             {subtitle && <p className="console-subtitle">{subtitle}</p>}
             <p className="console-description">{description || '暂无剧情简介。'}</p>
 
+            {!isLive && (actorsArr.length > 0 || director || writer) && (
+              <div className="console-cast-section" style={{ marginTop: '12px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ fontSize: '12px', color: '#8f98aa', textTransform: 'uppercase', letterSpacing: '0.15em', display: 'block', marginBottom: '12px', fontWeight: 'bold', textAlign: 'center' }}>
+                  CAST & CREW
+                </span>
+                {(director || writer) && (
+                  <div style={{ fontSize: '13px', color: '#cbd5e1', marginBottom: '14px', textAlign: 'center', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '16px' }}>
+                    {director && <span><span style={{ color: '#8f98aa' }}>导演：</span>{director}</span>}
+                    {writer && <span><span style={{ color: '#8f98aa' }}>编剧：</span>{writer}</span>}
+                  </div>
+                )}
+                {mainActors.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px', justifyContent: 'center' }}>
+                    {mainActors.map(actor => (
+                      <span
+                        key={actor}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '6px 14px',
+                          borderRadius: '8px',
+                          background: 'rgba(217, 119, 6, 0.15)',
+                          border: '1px solid rgba(217, 119, 6, 0.35)',
+                          color: '#f59e0b',
+                          fontWeight: '800',
+                          fontSize: '15px',
+                          letterSpacing: '0.12em',
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.25)',
+                        }}
+                      >
+                        {actor}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {otherActors.length > 0 && (
+                  <div style={{ fontSize: '12px', color: '#aeb5c3', lineHeight: '1.5', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                    <span style={{ color: '#8f98aa' }}>参演人员：</span>
+                    {otherActors.join('  ·  ')}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="console-info-actions" style={{ display: 'flex', gap: '8px', margin: '12px 0', flexWrap: 'wrap' }}>
               {onSearchSameName && (
                 <button
@@ -1494,44 +1535,6 @@ export function SangtianConsoleCard({
                 </button>
               )}
             </div>
-
-            {!isLive && actorsArr.length > 0 && (
-              <div className="console-cast-section" style={{ marginTop: '20px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontSize: '11px', color: '#8f98aa', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
-                  CAST & CREW · 演职人员表
-                </span>
-                {mainActors.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
-                    {mainActors.map(actor => (
-                      <span
-                        key={actor}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          padding: '6px 14px',
-                          borderRadius: '8px',
-                          background: 'rgba(217, 119, 6, 0.15)',
-                          border: '1px solid rgba(217, 119, 6, 0.35)',
-                          color: '#f59e0b', // Theme gold/amber
-                          fontWeight: '800',
-                          fontSize: '15px',
-                          letterSpacing: '0.12em',
-                          boxShadow: '0 2px 5px rgba(0,0,0,0.25)',
-                        }}
-                      >
-                        ★ 主演：{actor}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {otherActors.length > 0 && (
-                  <div style={{ fontSize: '13px', color: '#aeb5c3', lineHeight: '1.5', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
-                    <span style={{ color: '#8f98aa' }}>其他参演人员：</span>
-                    {otherActors.join('  ·  ')}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 

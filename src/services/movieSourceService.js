@@ -168,6 +168,7 @@ export async function syncMovieSources(sourceConfigs = [], selectedSourceId = nu
       const result = await load(adapter, {
         categoryId: isAll ? '' : activeCategory.id,
         categoryName: isAll ? '' : activeCategory.name,
+        keyword: options.keyword ?? '',
         page: Number(options.page) || 1,
         pageSize: Number(options.pageSize) || 24,
         timeoutMs: options.timeoutMs,

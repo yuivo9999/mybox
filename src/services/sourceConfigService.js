@@ -761,6 +761,10 @@ export const sourceConfigService = {
     return JSON.stringify(Array.isArray(sources) ? sources : sourceRepository.getAll(), null, 2);
   },
 
+  getDefaultSources() {
+    return DEFAULT_PRESET_SOURCES;
+  },
+
   download(sources, filename = 'tvbox-sources.json') {
     if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof Blob === 'undefined') throw new Error('SOURCE_EXPORT_BROWSER_REQUIRED');
     const blob = new Blob([this.exportText(sources)], { type: 'application/json;charset=utf-8' });

@@ -41,10 +41,10 @@ export async function testSource(source, options = {}) {
   return { ok: false, sourceId: source.sourceId, status: 'unsupported', checkedAt: Date.now() };
 }
 
-export async function syncAllSources({ movieSourceId = null, includeMovie = true, includeLive = true, liveSourceIds = null, movieCategoryId = null, movieCategoryName = '', moviePage = 1, moviePageSize = 24 } = {}) {
+export async function syncAllSources({ movieSourceId = null, includeMovie = true, includeLive = true, liveSourceIds = null, movieCategoryId = null, movieCategoryName = '', movieKeyword = '', moviePage = 1, moviePageSize = 24 } = {}) {
   let sources = sourceRepository.getAll().filter(source => source.enabled !== false);
   const movieResult = includeMovie
-    ? await sourceRegistryService.syncMovieSources(sources, movieSourceId, { categoryId: movieCategoryId, categoryName: movieCategoryName, page: moviePage, pageSize: moviePageSize })
+    ? await sourceRegistryService.syncMovieSources(sources, movieSourceId, { categoryId: movieCategoryId, categoryName: movieCategoryName, keyword: movieKeyword, page: moviePage, pageSize: moviePageSize })
     : { movies: [], results: [] };
 
   if (!includeLive) {
