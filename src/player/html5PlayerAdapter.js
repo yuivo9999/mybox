@@ -60,16 +60,19 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
 
       if (isHls && Hls.isSupported()) {
         try {
-          // 统一直播与流媒体播放内核技术：
-          // 1. 初次打开时采用即时低延时快速加载起播（低延时首次渲染）。
-          // 2. 随播放进行，动态逐步将前置缓冲区提升至 60 秒提前量（progressive lookahead buffer），抗网络抖动，杜绝卡顿。
+          // Live 统一最多缓存 60 秒 ahead buffer；起播仍采用渐进式 15 -> 30 -> 45 -> 60 秒。
+          // VOD 继续使用原来的默认缓冲策略。
+          const liveBufferMaxSeconds = Math.max(
+            15,
+            Math.min(60, Number(next.playerHint?.liveBufferMaxSeconds ?? 60) || 60)
+          );
           let fragLoadedCount = 0;
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: false,
             backBufferLength: 60,
-            maxBufferLength: isLiveStream ? 15 : 30, // 初始快速起播
-            maxMaxBufferLength: 120,
+            maxBufferLength: isLiveStream ? Math.min(15, liveBufferMaxSeconds) : 30,
+            maxMaxBufferLength: isLiveStream ? liveBufferMaxSeconds : 120,
             maxBufferSize: 80 * 1000 * 1000,
             maxBufferHole: 0.8,
             highBufferWatchdogPeriod: 2,
@@ -102,7 +105,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             } else if (fragLoadedCount === 2) {
               hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
             } else if (fragLoadedCount >= 3) {
-              hls.config.maxBufferLength = 60;
+              hls.config.maxBufferLength = liveBufferMaxSeconds;
             }
           });
           hls.on(Hls.Events.ERROR, (event, data) => {
