@@ -44,6 +44,7 @@ export function MoviePlaybackPage({
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(() => {
     const playback = settings?.playback || {};
+    if (playback.moviePlaybackScheme) return getPlaybackScheme(playback.moviePlaybackScheme).id;
     const engine = playback.moviePlayer || 'ijk';
     return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
   });
@@ -62,6 +63,7 @@ export function MoviePlaybackPage({
       playback: {
         ...currentPlayback,
         moviePlayer: engine,
+        moviePlaybackScheme: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
