@@ -6,13 +6,10 @@ import { usePersistentState } from '../../state/usePersistentState.js';
 import { requestManager } from '../../services/requestManager.js';
 import { SmartImage, EmptyState, LoadingState, ErrorState } from '../../components/StateViews.jsx';
 import { Tv1LivePlayerBlock } from '../../components/player/Tv1LivePlayerBlock.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
 
-function normalizeDecoderSelection(player = 'exo', mode = 'hardware') {
-  const engine = String(player || 'exo').trim().toLowerCase();
-  if (engine === 'exo' || engine === 'ijk') {
-    return engine + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware');
-  }
-  return engine || 'exo';
+function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
 }
 
 export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFavorite, onBack }) {
@@ -83,7 +80,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const visible = useMemo(() => category === '全部' ? channels : channels.filter(channel => channel.category === category), [channels, category]);
 
   const handleSwitchDecoderEngine = async (engineInput) => {
-    let engine = 'exo';
+    let engine = 'ijk';
     let decoderMode = 'hardware';
     if (typeof engineInput === 'string') {
       if (engineInput.includes('exo')) {
