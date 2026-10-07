@@ -8,6 +8,7 @@ import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
 import { usePersistentState } from '../../state/usePersistentState.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
 import { LivePlayerBlock } from '../../components/player/LivePlayerBlock.jsx';
+import { getPlaybackScheme } from '../../models/userData.js';
 
 export function createLiveFeature({ channels = [] } = {}) {
   return {
@@ -67,11 +68,7 @@ export async function resolveLiveChannelStreams(channel, { sources = [], signal,
 
 // Global Live State Cache across Tab Navigations
 function normalizeLiveDecoderSelection(player, mode = 'hardware') {
-  const engine = String(player || 'exo').trim().toLowerCase();
-  if (engine === 'exo' || engine === 'ijk') {
-    return engine + '_' + (mode === 'software' ? 'software' : 'hardware');
-  }
-  return engine || 'exo';
+  return getPlaybackScheme(String(player || 'ijk') + '_' + (mode === 'software' ? 'software' : 'hardware')).id;
 }
 
 export const globalLiveCache = {
@@ -107,7 +104,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       return cached;
     }
     const playback = persistent.settings?.playback || {};
-    const player = playback.livePlayer || 'exo';
+    const player = playback.livePlayer || 'ijk';
     return normalizeLiveDecoderSelection(player, playback.decoder?.[player] || 'hardware');
   });
 
@@ -125,7 +122,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         engine = engineInput;
       }
     }
-    setDecoderEngine(engineInput);
+    setDecoderEngine(getPlaybackScheme(engineInput).id);
     globalLiveCache.decoderEngine = engineInput;
 
     // 1. 保存设置到持久化 settings 中
