@@ -16,6 +16,7 @@ import { normalizePlaybackEvent } from './playbackEventProtocol.js';
 import { userDataService } from '../services/userDataService.js';
 
 const LIVE_BUFFER_MAX_SECONDS = 60;
+const VOD_BUFFER_MAX_SECONDS = 200;
 
 function nativeAvailable() {
   if (typeof window === 'undefined') return false;
@@ -116,6 +117,9 @@ export function createPlaybackCore(task,hooks={}) {
    live: task.request.kind === PlaybackKind.LIVE,
    liveBufferMaxSeconds: task.request.kind === PlaybackKind.LIVE
     ? Number(input.playerHint?.liveBufferMaxSeconds ?? LIVE_BUFFER_MAX_SECONDS)
+    : undefined,
+   vodBufferMaxSeconds: task.request.kind === PlaybackKind.VOD
+    ? Number(input.playerHint?.vodBufferMaxSeconds ?? VOD_BUFFER_MAX_SECONDS)
     : undefined,
    ijkProfiles: input.playerHint?.ijkProfiles ?? input.metadata?.tvboxIJKProfiles ?? {},
    ijkProfile: input.playerHint?.ijkProfile ?? (
