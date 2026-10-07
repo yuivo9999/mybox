@@ -169,7 +169,13 @@ public final class NativePlaybackBridge {
 
             engineIndex = 0;
             selectedEngine = engineOrder.get(engineIndex);
-            decoderMode = decoderModes.getOrDefault(selectedEngine, decoderMode);
+            // Explicit UI selection wins over persisted per-engine defaults.
+            // decoderModes is only the fallback when no decoder was requested for
+            // this load.
+            String requestedDecoder = hint == null ? "" : hint.optString("decoder", "").trim().toLowerCase();
+            decoderMode = requestedDecoder.isEmpty()
+                    ? decoderModes.getOrDefault(selectedEngine, decoderMode)
+                    : requestedDecoder;
             prepared = false;
             wantPlay = false;
             releaseCurrentEngine();
