@@ -63,6 +63,7 @@ public final class NativePlaybackBridge {
     private Surface surface;
 
     private String url;
+    private String mediaProtocol = "";
     private Map<String, String> headers = Collections.emptyMap();
     private String cookies = "";
     private String decoderMode = "auto";
@@ -150,6 +151,7 @@ public final class NativePlaybackBridge {
             JSONObject input = new JSONObject(payload == null ? "{}" : payload);
             url = input.optString("url", "");
             if (url.isEmpty()) return error("PLAYER_URL_REQUIRED");
+            mediaProtocol = normalizeProtocol(input.optString("protocol", ""), url);
 
             headers = readMap(input.optJSONObject("headers"));
             cookies = input.optString("cookies", "");
@@ -428,6 +430,24 @@ public final class NativePlaybackBridge {
         if (!released) releaseMedia("{}");
     }
 
+    private static String normalizeProtocol(String protocol, String mediaUrl) {
+        String explicit = protocol == null ? "" : protocol.trim().toLowerCase();
+        if ("hls/m3u8".equals(explicit)) return "hls";
+        if (!explicit.isEmpty()) return explicit;
+
+        String value = mediaUrl == null ? "" : mediaUrl.trim().toLowerCase();
+        if (value.contains(".m3u8") || value.contains("/pltv/") || value.contains("/tvod/")) return "hls";
+        if (value.startsWith("rtmp://")) return "rtmp";
+        if (value.startsWith("rtsp://")) return "rtsp";
+        if (value.contains(".flv")) return "flv";
+        if (value.contains(".mpd")) return "dash";
+        return (value.startsWith("http://") || value.startsWith("https://")) ? "http" : "";
+    }
+
+    private boolean isIJKOnlyProtocol() {
+        return "rtmp".equals(mediaProtocol) || "flv".equals(mediaProtocol);
+    }
+
     private List<String> buildEngineOrder(String requested, String mediaUrl, String protocol) {
         ArrayList<String> result = new ArrayList<>();
         String normalized = requested == null ? "" : requested.trim().toLowerCase();
@@ -448,6 +468,15 @@ public final class NativePlaybackBridge {
         ArrayList<String> unique = new ArrayList<>();
         for (String item : result) {
             if ((ENGINE_EXO.equals(item) || ENGINE_IJK.equals(item) || ENGINE_NATIVE.equals(item)) && !unique.contains(item)) unique.add(item);
+        }
+
+        // RTMP/FLV are not supported by the Android Media3 ExoPlayer path used here.
+        // Keep these protocols on IJK so a configured Exo/native preference cannot
+        // accidentally turn an otherwise valid live URL into an unsupported-engine error.
+        if (isIJKOnlyProtocol()) {
+            unique.clear();
+            unique.add(ENGINE_IJK);
+            return unique;
         }
 
         // Live playback has a stricter fallback contract: when IJK hardware fails,
@@ -724,6 +753,25 @@ public final class NativePlaybackBridge {
     }
 
     private synchronized String fallbackOrError(String reason) {
+        if (ENGINE_IJK.equals(selectedEngine)
+                && "hardware".equals(decoderMode)
+                && livePlayback
+                && isIJKOnlyProtocol()
+                && fallbackEnabled) {
+            releaseCurrentEngine();
+            decoderMode = "software";
+            prepared = false;
+            try {
+                createCurrentEngine();
+                emit("reconnecting", errorObject("fallback:ijk_hardware_to_software:" + reason));
+                prepareMedia("{}");
+                return ok("fallbackDecoder", "software");
+            } catch (Throwable next) {
+                emit("error", errorObject("IJK_SOFTWARE_FALLBACK:" + safeMessage(next)));
+                return error("IJK_SOFTWARE_FALLBACK:" + safeMessage(next));
+            }
+        }
+
         if (ENGINE_IJK.equals(selectedEngine)
                 && "hardware".equals(decoderMode)
                 && !livePlayback
