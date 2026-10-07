@@ -4,7 +4,7 @@ import { Heart, Play, Radio, RefreshCw } from 'lucide-react';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { requestManager } from '../../services/requestManager.js';
 import { SmartImage, EmptyState, LoadingState, ErrorState } from '../../components/StateViews.jsx';
-import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
+import { Tv1LivePlayerBlock } from '../../components/player/Tv1LivePlayerBlock.jsx';
 
 export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFavorite, onBack }) {
   const tv1Sources = useMemo(() => sources.filter(tv1LiveService.isSupportedSource), [sources]);
@@ -92,7 +92,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
         <button className="secondary" onClick={load}><RefreshCw size={15}/>刷新</button>
       </div>
       {activeChannel && <>
-        <SangtianPlayerWindow 
+        <Tv1LivePlayerBlock 
           videoRef={videoRef} 
           status={activeStream ? 'playing' : 'idle'} 
           isLive 
@@ -132,7 +132,7 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
           }}
         >
           <video ref={videoRef} controls playsInline className="sangtian-video-element"/>
-        </SangtianPlayerWindow>
+        </Tv1LivePlayerBlock>
         <div className="live-current-bar">
           <div className="live-current-info"><span className="live-pill">● TV1 专用</span><b>{activeChannel.name}</b><small>{activeChannel.category} · {activeStream?.label || '线路 1'}</small></div>
           <div className="live-current-actions">
