@@ -163,12 +163,17 @@ function SourceList({sources,onEnabled,onActive,onTest,onRemove}){
   const removeSource=sources.find(source=>source.sourceId===removeId);
   return <div className="source-list">{sources.map((source, index)=>{
     const isTesting = source.status === '测试中';
-    const isUnsupported = String(source.sourceCapability || '').startsWith('tvbox-')
-      || String(source.adapterType || '').startsWith('tvbox-');
+    const capability = String(source.sourceCapability || '').trim();
+    const tvboxKind = String(source.tvboxAdapterKind || '').trim().toLowerCase();
+    const safeExtFormats = new Set(['json-vod', 'remote-json', 'remote-resource', 'inline-json']);
+    const runtimeSupported = capability === 'tvbox-jar'
+      || capability === 'tvbox-http-vod-with-jar'
+      || (capability === 'tvbox-ext' && tvboxKind === 'ext' && safeExtFormats.has(String(source.tvboxExtFormat || '').trim()));
+    const isUnsupported = (capability.startsWith('tvbox-') || String(source.adapterType || '').startsWith('tvbox-')) && !runtimeSupported;
     const capabilityLabel = source.tvboxAdapterKind === 'drpy-js' ? 'Drpy JS待适配'
       : source.tvboxAdapterKind === 'csp' ? 'CSP待适配'
-      : source.tvboxAdapterKind === 'jar' || source.tvboxAdapterKind === 'http-vod-with-jar' ? 'JAR待适配'
-      : source.tvboxAdapterKind === 'ext' ? 'ext待适配'
+      : source.tvboxAdapterKind === 'jar' || source.tvboxAdapterKind === 'http-vod-with-jar' ? (runtimeSupported ? 'JAR执行器' : 'JAR待适配')
+      : source.tvboxAdapterKind === 'ext' ? (runtimeSupported ? '安全JSON EXT' : 'ext待适配')
       : source.tvboxAdapterKind === 'live-provider' ? 'Live提供器待适配'
       : isUnsupported ? 'TVBox扩展待适配' : '';
     const statusColor = (source.status==='正常'||source.status==='可用') ? '#22c55e' : (source.status==='不可用'||source.status==='异常') ? '#f87171' : isTesting ? '#38bdf8' : '#94a3b8';
