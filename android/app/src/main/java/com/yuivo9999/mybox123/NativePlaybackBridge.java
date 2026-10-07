@@ -88,7 +88,7 @@ public final class NativePlaybackBridge {
     private int liveBufferMaxMs = LIVE_BUFFER_MAX_MS;
     private int vodBufferMaxMs = VOD_BUFFER_MAX_MS;
     private List<String> configuredFallbackOrder = Collections.emptyList();
-    private String selectedEngine = ENGINE_EXO;
+    private String selectedEngine = ENGINE_IJK;
     private String actualExoDecoderName = "";
     private List<String> engineOrder = Collections.emptyList();
     private int engineIndex = 0;
