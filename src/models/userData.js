@@ -65,21 +65,23 @@ export const normalizePlaybackSettings = (value = {}) => {
   const decoder = input.decoder && typeof input.decoder === 'object' ? input.decoder : {};
   const order = Array.isArray(input.fallbackOrder) ? input.fallbackOrder.filter(item => ['exo', 'ijk', 'native'].includes(item)) : [];
   const fallbackOrder = [...new Set([...order, 'ijk', 'exo', 'native'])].slice(0, 3);
-  const moviePlayer = ['exo', 'ijk', 'native'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk';
-  const livePlayer = ['exo', 'ijk', 'native'].includes(input.livePlayer) ? input.livePlayer : 'ijk';
-  const movieDecoder = decoder[moviePlayer] === 'software' ? 'software' : 'hardware';
-  const liveDecoder = decoder[livePlayer] === 'software' ? 'software' : 'hardware';
+  const legacyMoviePlayer = ['exo', 'ijk'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk';
+  const legacyLivePlayer = ['exo', 'ijk'].includes(input.livePlayer) ? input.livePlayer : 'ijk';
+  const movieDecoder = decoder[legacyMoviePlayer] === 'software' ? 'software' : 'hardware';
+  const liveDecoder = decoder[legacyLivePlayer] === 'software' ? 'software' : 'hardware';
+  const movieScheme = PLAYBACK_SCHEMES.some(scheme => scheme.id === input.moviePlaybackScheme)
+    ? getPlaybackScheme(input.moviePlaybackScheme)
+    : getPlaybackSchemeId(legacyMoviePlayer, movieDecoder);
+  const liveScheme = PLAYBACK_SCHEMES.some(scheme => scheme.id === input.livePlaybackScheme)
+    ? getPlaybackScheme(input.livePlaybackScheme)
+    : getPlaybackSchemeId(legacyLivePlayer, liveDecoder);
   return {
     ...defaultPlaybackSettings(),
     ...input,
-    moviePlayer,
-    livePlayer,
-    moviePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.moviePlaybackScheme)
-      ? input.moviePlaybackScheme
-      : getPlaybackSchemeId(moviePlayer, movieDecoder),
-    livePlaybackScheme: PLAYBACK_SCHEMES.some(scheme => scheme.id === input.livePlaybackScheme)
-      ? input.livePlaybackScheme
-      : getPlaybackSchemeId(livePlayer, liveDecoder),
+    moviePlayer: movieScheme.engine,
+    livePlayer: liveScheme.engine,
+    moviePlaybackScheme: movieScheme.id,
+    livePlaybackScheme: liveScheme.id,
     fallbackEnabled: input.fallbackEnabled !== false,
     fallbackOrder,
     decoder: {
