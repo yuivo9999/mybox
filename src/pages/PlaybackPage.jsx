@@ -44,6 +44,8 @@ function PlaybackView({
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(() => {
     const playback = settings?.playback || {};
+    const scope = isLive ? 'live' : 'movie';
+    if (playback[scope + 'PlaybackScheme']) return getPlaybackScheme(playback[scope + 'PlaybackScheme']).id;
     const engine = isLive ? playback.livePlayer : playback.moviePlayer;
     return normalizeDecoderSelection(engine || 'ijk', playback.decoder?.[engine] || 'hardware');
   });
@@ -63,6 +65,7 @@ function PlaybackView({
       playback: {
         ...currentPlayback,
         [isLive ? 'livePlayer' : 'moviePlayer']: engine,
+        [isLive ? 'livePlaybackScheme' : 'moviePlaybackScheme']: scheme.id,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [engine]: decoderMode,
