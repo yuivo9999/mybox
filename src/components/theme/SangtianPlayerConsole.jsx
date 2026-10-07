@@ -947,8 +947,9 @@ export function SangtianPlayerWindowCore({
                         );
                       })()}
 
-                      <div className="settings-group">
-                        <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
+                      {onChangeDecoderEngine && (
+                        <div className="settings-group">
+                          <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
                         <div className="settings-btn-grid vertical">
                           {[
                             { id: 'exo_hardware', name: 'ExoPlayer 硬解 (MediaCodec)' },
@@ -972,8 +973,9 @@ export function SangtianPlayerWindowCore({
                               </button>
                             );
                           })}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       <div className="settings-group exit-section">
                         <button
