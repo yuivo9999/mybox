@@ -5,6 +5,7 @@ import { playbackService } from '../../services/playbackService.js';
 import { requestManager } from '../../services/requestManager.js';
 import { tv1LiveService } from '../../services/tv1LiveService.js';
 import { usePageState, pageStateStore } from '../../state/pageStateStore.js';
+import { persistentStateStore } from '../../state/persistentStateStore.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
 import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
 import {
@@ -90,7 +91,8 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     if (globalLiveCache.decoderEngine) return globalLiveCache.decoderEngine;
     const isWeb = detectRuntimeEnv() === RUNTIME_ENV.WEB;
     if (isWeb) return 'hls_lowlatency';
-    const currentPlayback = persistent.settings?.playback || {};
+    const settings = persistentStateStore.getSnapshot()?.settings;
+    const currentPlayback = settings?.playback || {};
     if (currentPlayback.livePlaybackScheme) return currentPlayback.livePlaybackScheme;
     const player = currentPlayback.livePlayer || 'ijk';
     const mode = currentPlayback.decoder?.[player] || 'hardware';
@@ -109,8 +111,9 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     globalLiveCache.decoderEngine = engineInput;
 
     // 1. 保存设置到持久化 settings 中
-    const currentPlayback = persistent.settings?.playback || {};
-    persistent.updateSettings({
+    const settings = persistentStateStore.getSnapshot()?.settings;
+    const currentPlayback = settings?.playback || {};
+    persistentStateStore.updateSettings({
       playback: {
         ...currentPlayback,
         livePlayer: resolved.engine,
