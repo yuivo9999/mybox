@@ -5,19 +5,25 @@ import {
   FileText, LayoutGrid, SlidersHorizontal, Check, RefreshCw, Ratio,
   Lock, Unlock, ListVideo, Square, Heart, Search, Radio
 } from 'lucide-react';
+import {
+  getPlaybackRouteConfig,
+  detectRuntimeEnv,
+  MEDIA_KIND,
+  VIEW_TIER
+} from '../../playback/playbackStrategyDispatcher.js';
 
-export function SangtianPlayerWindowCore({
+export function SangtianPlayerWindow({
   videoRef, controller, status, error, resolvedInput, candidate, request, onRetry, onSwitchCandidate, onStop,
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
   channels = [], activeChannel = null, activeStreamIndex = 0, onSelectChannel, onSwitchStreamIndex,
-  decoderEngine = 'ijk_hardware', onChangeDecoderEngine,
+  decoderEngine = 'exo', onChangeDecoderEngine,
   isImmersive = false, onToggleImmersive,
   title = '', episodeLabel = '', sourceLabel = '',
   episodes = [], currentEpisodeIndex = 0, onSelectEpisode,
   onPreviousEpisode, onNextEpisode,
   candidates = [], onSelectCandidate, onOpenSourceModal,
-  onTimeMetricsChange, playerScope = 'generic',
+  onTimeMetricsChange,
 }) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -147,23 +153,6 @@ export function SangtianPlayerWindowCore({
     handleFullscreenChange();
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [isWebFullscreen]);
-
-  // 沉浸播放器位于 .screen（该容器为桌面布局服务且自身 overflow:hidden），
-  // 固定定位虽然保持在同一 React 播放器实例中，但仍可能被父级裁剪。
-  // 沉浸期间临时解除该裁剪并锁住页面滚动；退出/卸载时完整恢复原状态。
-  useEffect(() => {
-    if (!isImmersive) return undefined;
-    const screen = videoContainerRef?.current?.closest?.('.screen');
-    const body = typeof document !== 'undefined' ? document.body : null;
-    const previousScreenOverflow = screen?.style?.overflow ?? '';
-    const previousBodyOverflow = body?.style?.overflow ?? '';
-    if (screen) screen.style.overflow = 'visible';
-    if (body) body.style.overflow = 'hidden';
-    return () => {
-      if (screen) screen.style.overflow = previousScreenOverflow;
-      if (body) body.style.overflow = previousBodyOverflow;
-    };
-  }, [isImmersive, videoContainerRef]);
 
   // Auto-hide fullscreen controls after 3 seconds of inactivity
   const fullscreen = isSystemFullscreen || isImmersive || isWebFullscreen;
@@ -431,16 +420,29 @@ export function SangtianPlayerWindowCore({
   const displayTitle = title || request?.metadata?.title || (isLive ? activeChannel?.name : '正在播放');
   const displayEpisode = episodeLabel || (episodes.length > 0 ? `第 ${currentEpisodeIndex + 1} 集` : '');
 
+  // 8 路线统一调度中心：实时根据 [当前平台环境] x [影视/直播] x [主界面/沉浸全屏] 解析出对应路线
+  const runtimeEnv = detectRuntimeEnv();
+  const currentTier = (fullscreen || isImmersive) ? VIEW_TIER.IMMERSIVE : VIEW_TIER.MAIN;
+  const currentRouteConfig = getPlaybackRouteConfig({
+    runtime: runtimeEnv,
+    kind: isLive ? MEDIA_KIND.LIVE : MEDIA_KIND.VOD,
+    viewTier: currentTier,
+  });
+
   return (
     <div
-      className={`sangtian-window player-scope-${playerScope} ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${isSystemFullscreen ? 'is-system-fullscreen' : ''} ${isWebFullscreen ? 'is-web-fullscreen' : ''} ${isImmersive ? 'is-immersive' : ''} aspect-${aspectMode.replace(':','-')}`}
-      data-player-scope={playerScope}
+      className={`sangtian-window ${isLive ? 'is-live-direct' : ''} ${isLandscape ? 'is-landscape' : ''} ${fullscreen ? 'is-system-fullscreen is-web-fullscreen' : ''} aspect-${aspectMode.replace(':','-')}`}
       onMouseMove={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
       onTouchStart={fullscreen ? resetControlsTimeout : resetEmbeddedControlsTimeout}
     >
       {!fullscreen && (
         <div className="sangtian-window-bar">
-          <div className="sangtian-window-tag"><span>{terminalTag}</span></div>
+          <div className="sangtian-window-tag">
+            <span>{terminalTag}</span>
+            <span style={{ marginLeft: '6px', fontSize: '10px', opacity: 0.85, padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' }}>
+              {currentRouteConfig.label}
+            </span>
+          </div>
           <div className="sangtian-window-actions">
             <button
               className="sangtian-window-btn"
@@ -964,38 +966,41 @@ export function SangtianPlayerWindowCore({
                         );
                       })()}
 
-                      {onChangeDecoderEngine && (
-                        <div className="settings-group">
-                          <label>解码内核与硬软解 (Decoder Engine & Mode)</label>
+                      <div className="settings-group">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <label style={{ margin: 0 }}>解码内核与硬软解 (Decoder Engine & Mode)</label>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(217, 119, 6, 0.2)', color: '#fbbf24', border: '1px solid rgba(217, 119, 6, 0.4)', fontWeight: 600 }}>
+                            {currentRouteConfig.label}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                          {currentRouteConfig.description}
+                        </p>
                         <div className="settings-btn-grid vertical">
-                          {[
-                            { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (MediaCodec)' },
-                            { id: 'exo_hardware', name: 'ExoPlayer 硬解 (MediaCodec)' },
-                            { id: 'exo_software', name: 'ExoPlayer 软解 (Software)' },
-                            { id: 'ijk_software', name: 'IJKPlayer 软解 (FFmpeg)' },
-                          ].map((engine) => {
-                            const effectiveDecoderEngine = [
-                              'ijk_hardware',
-                              'exo_hardware',
-                              'exo_software',
-                              'ijk_software',
-                            ].includes(decoderEngine)
-                              ? decoderEngine
-                              : 'ijk_hardware';
-                            const isActive = effectiveDecoderEngine === engine.id;
+                          {currentRouteConfig.engines.map((engine) => {
+                            const isActive = decoderEngine === engine.id ||
+                              (decoderEngine === 'exo' && engine.id.includes('exo')) ||
+                              (decoderEngine === 'ijk' && engine.id.includes('ijk')) ||
+                              (decoderEngine === 'hls' && engine.id.includes('hls')) ||
+                              (decoderEngine === 'html5' && (engine.id.includes('html5') || engine.id.includes('hls')));
                             return (
                               <button
                                 key={engine.id}
                                 className={`setting-btn ${isActive ? 'active' : ''}`}
                                 onClick={() => onChangeDecoderEngine?.(engine.id)}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                               >
-                                {engine.name}
+                                <span>{engine.name}</span>
+                                {engine.badge && (
+                                  <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.12)', color: '#cbd5e1' }}>
+                                    {engine.badge}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
-                          </div>
                         </div>
-                      )}
+                      </div>
 
                       <div className="settings-group exit-section">
                         <button

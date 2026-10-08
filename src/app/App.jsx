@@ -298,6 +298,10 @@ export function App(){
    if (targetTab) nav(targetTab);
  };
  const openSearchHistory=(keyword)=>{pageStateStore.patch('search',{query:keyword});sessionStateStore.patch({tab:'movies',route:'search',selected:null});};
+ const handleFilterSearch=(keyword)=>{
+   if(keyword) openSearchHistory(keyword);
+   else sessionStateStore.patch({tab:'movies',route:'search',selected:null});
+ };
  const playLive=(channel,streamId=null)=>{
    if(!channel)return;
    persistent.touchFavorite?.('channel', channel.channelId);
