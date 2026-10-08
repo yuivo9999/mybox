@@ -473,15 +473,24 @@ public final class NativePlaybackBridge {
 
     private static String normalizeProtocol(String protocol, String mediaUrl) {
         String explicit = protocol == null ? "" : protocol.trim().toLowerCase();
-        if ("hls/m3u8".equals(explicit)) return "hls";
-        if (!explicit.isEmpty()) return explicit;
-
         String value = mediaUrl == null ? "" : mediaUrl.trim().toLowerCase();
-        if (value.contains(".m3u8") || value.contains("/pltv/") || value.contains("/tvod/")) return "hls";
+
+        if ("hls/m3u8".equals(explicit)
+                || "application/vnd.apple.mpegurl".equals(explicit)
+                || "application/x-mpegurl".equals(explicit)) return "hls";
+
+        // A URL with a media-specific signature wins over generic HTTP/HTTPS metadata.
+        // This prevents protocol="http" from making a valid .m3u8 stream reach
+        // ExoPlayer without MimeTypes.APPLICATION_M3U8.
+        if (value.matches(".*\\.m3u8(?:[?#].*)?$")
+                || value.contains("/pltv/")
+                || value.contains("/tvod/")) return "hls";
+        if (value.matches(".*\\.mpd(?:[?#].*)?$")) return "dash";
         if (value.startsWith("rtmp://")) return "rtmp";
         if (value.startsWith("rtsp://")) return "rtsp";
-        if (value.contains(".flv")) return "flv";
-        if (value.contains(".mpd")) return "dash";
+        if (value.matches(".*\\.flv(?:[?#].*)?$")) return "flv";
+
+        if (!explicit.isEmpty()) return explicit;
         return (value.startsWith("http://") || value.startsWith("https://")) ? "http" : "";
     }
 
