@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Clock3, Database, Film, Info, Radio, Search, Server, Settings, Trash2, Check, Download, Upload, X, CheckSquare, Square, Power, PowerOff, RefreshCw } from 'lucide-react';
+import { ChevronLeft, Clock3, Database, Film, Info, Radio, Search, Server, Settings, Trash2, Check, Download, Upload, X, CheckSquare, Square, Power, PowerOff, RefreshCw, Layers } from 'lucide-react';
 import { LiveFeature } from '../features/live/LiveFeature.jsx';
 import { SmartImage, EmptyState } from '../components/StateViews.jsx';
 import { sourceConfigService } from '../services/sourceConfigService.js';
+import { multiRepoService } from '../services/multiRepoService.js';
+import { MultiRepoManager } from '../features/sources/MultiRepoManager.jsx';
+import { RepoDetailView } from '../features/sources/RepoDetailView.jsx';
 import { FONT_CATALOG, getFontById } from '../config/fontCatalog.js';
 import { ensureFont } from '../services/fontLoader.js';
 import { MovieCarousel } from '../components/media/MovieCarousel.jsx';
@@ -11,6 +14,7 @@ import { PLAYBACK_SCHEMES, getPlaybackScheme, getPlaybackSchemeId } from '../mod
 function Main({tab,movies,channels,favorites,history,sources,searches,progress,settings,onTab,onMovie,onLive,onLiveChannel,onSearchHistory,toggleFavorite,onClearData,onClearHistory,onSaveSources,onClearSearches,onRemoveSearch,onClearCache,onSourceEnabled,onSourceActive,onTestSource,onRemoveSource,onClearAllSources,onUpdateSettings}){
  const [favoriteSection,setFavoriteSection]=useState('movies'); const [fontPicker,setFontPicker]=useState(false);
  const [confirm,setConfirm]=useState(null); const [sourceForm,setSourceForm]=useState(null); const [batchMode,setBatchMode]=useState(false); const [sourceNotice,setSourceNotice]=useState('');
+ const [multiRepoMode,setMultiRepoMode]=useState(false); const [inspectingRepo,setInspectingRepo]=useState(null); const [isSyncingSingle,setIsSyncingSingle]=useState(false);
  if(tab==='live') return <LiveFeature channels={channels} sources={sources} favorites={favorites} onChannel={onLiveChannel} onPlay={onLive} onTab={onTab} toggleFavorite={toggleFavorite}/>;
  if(tab==='favorites'){
   const favoriteContentRecords=favorites.filter(i=>i.targetType==='content');
@@ -24,7 +28,156 @@ function Main({tab,movies,channels,favorites,history,sources,searches,progress,s
   return <Page><Header title="播放历史"/>{historyMovies.length?<div className="movie-grid">{historyMovies.filter(({movie})=>movie).map(({movie,item})=>{const ep=movie.episodes?.find(e=>e.episodeId===item.episodeId);const pct=item.durationSeconds?Math.min(100,Math.round(item.positionSeconds/item.durationSeconds*100)):0;return <article className="movie-card history-card" key={item.historyId} onClick={()=>onMovie(movie)}><SmartImage src={movie.poster} alt={movie.title}/><div><b>{movie.title}</b><span>{ep?.title??'继续观看'} · {pct}%</span><small>最近观看：{new Date(item.lastPlayedAt||Date.now()).toLocaleString()}</small></div></article>})}</div>:<Empty text="还没有播放历史"/>}{historyMovies.filter(({movie})=>!movie).map(({item})=><div className="info-card" key={item.historyId}><Database size={18}/><div><b>暂时无法找到来源</b><span>播放历史已保留：{item.targetId}</span></div></div>)}{historyChannels.length>0&&<><SectionTitle title="Live"/><div className="channel-list">{historyChannels.map(c=><button className="menu" key={c.channelId} onClick={()=>onLiveChannel(c)}><Radio size={18}/><span>{c.name}<small>{c.category}</small></span><ChevronLeft className="flip" size={17}/></button>)}</div></>}</Page>;
  }
  if(tab==='search-history') return <Page><Header title="搜索历史"/><div className="actions"><button className="secondary" disabled={!searches.length} onClick={()=>setConfirm({type:'searches'})}>清空搜索历史</button></div><div className="history-list">{searches.map(i=><div className="menu" key={i.searchId}><Search size={18}/><button className="history-keyword" onClick={()=>onSearchHistory(i.keyword)}>{i.keyword}</button><em>{i.count} 次</em><button className="icon-button" aria-label="删除历史" onClick={()=>setConfirm({type:'search',id:i.searchId})}>×</button></div>)}{!searches.length&&<Empty text="还没有搜索历史"/>}</div>{confirm&&<ConfirmDialog title={confirm.type==='searches'?'清空搜索历史？':'删除这条搜索历史？'} onCancel={()=>setConfirm(null)} onConfirm={()=>{if(confirm.type==='searches')onClearSearches();else onRemoveSearch(confirm.id);setConfirm(null)}}/>}</Page>;
-   if(tab==='sources') return <Page><Header title="源管理"/><div className="actions"><button className="secondary" onClick={()=>{setSourceNotice('');setSourceForm({sourceType:'live',name:''})}}>添加源</button><button className="secondary" title="恢复项目内置的精品影视与直播源" onClick={async ()=>{if(window.confirm('确定要恢复项目自带的默认源吗？这不会删除您手动添加的源。')){try{const defaults=sourceConfigService.getDefaultSources();const existing=new Set(sources.map(s=>`${s.sourceType}|${s.sourceRef||s.url||''}`));const additions=defaults.filter(d=>!existing.has(`${d.sourceType}|${d.sourceRef||d.url||''}`));await onSaveSources([...sources,...additions]);setSourceNotice(additions.length?`已恢复 ${additions.length} 个内置源`:'内置源已经存在，无需重复添加');}catch(e){console.error(e);setSourceNotice(`恢复内置源失败：${e?.message||'未知错误'}`);}}}}>恢复内置源</button><button className="secondary" onClick={()=>{try{sourceConfigService.download(sources);setSourceNotice('源配置已导出');}catch(e){console.error(e);setSourceNotice(`导出失败：${e?.message||'未知错误'}`);}}}><Download size={16}/>导出</button><label className="secondary file-button"><Upload size={16}/>导入<input type="file" accept=".json,.txt,.m3u,application/json,text/plain" hidden onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{const parsed=await sourceConfigService.importFile(file);await onSaveSources(parsed);setSourceNotice(`已导入 ${parsed.length} 个源`);}catch(error){console.error(error);setSourceNotice(`导入失败：${error?.message||'文件格式无效'}`);}finally{e.target.value='';}}}/></label><button className="secondary" onClick={()=>setBatchMode(true)}><CheckSquare size={16}/>批量</button><button className="secondary danger" style={{color:'#e53935',borderColor:'#f8d7da',background:'#fdf2f2'}} onClick={()=>setConfirm({type:'clear-all-sources'})} title="彻底清空源与缓存"><Trash2 size={15}/>清空全部</button></div>{sourceNotice&&<div className="batch-source-notice" role="status">{sourceNotice}</div>}<><SectionTitle title="影视源"/><SourceList sources={sources.filter(s=>s.sourceType==='movie')} onEnabled={onSourceEnabled} onActive={onSourceActive} onTest={onTestSource} onRemove={onRemoveSource}/><SectionTitle title="Live 源"/><SourceList sources={sources.filter(s=>s.sourceType==='live')} onEnabled={onSourceEnabled} onActive={onSourceActive} onTest={onTestSource} onRemove={onRemoveSource}/></><InfoCard title="源边界" text="影视源与 Live 源独立管理。支持网络 URL、标准 JSON、M3U 播放列表以及 #genre# 分类 TXT 电视直播源文件，导入与运行时状态分离。"/>{confirm?.type==='clear-all-sources'&&<ConfirmDialog title="彻底清空所有源与缓存？" text="此操作将彻底删除源管理中的全部影视源与 Live 直播源（包括项目自带内置源），并清理全量本地数据与播放缓存，保证不留残余。确定清空吗？" onCancel={()=>setConfirm(null)} onConfirm={async ()=>{setConfirm(null);await onClearAllSources?.();}}/>}{sourceForm&&<SourceForm value={sourceForm} onCancel={()=>setSourceForm(null)} onSave={async source=>{const additions=Array.isArray(source)?source:[{...source,sourceId:`source_${source.sourceType}_${Date.now()}`,enabled:true,status:'未测试'}];try{await onSaveSources([...sources,...additions]);setSourceNotice(Array.isArray(source)?`已添加 ${source.length} 个源`:'源已添加');setSourceForm(null);}catch(error){console.error(error);setSourceNotice(`保存源失败：${error?.message||'未知错误'}`);}}}/>}{batchMode&&<BatchSourceManager sources={sources} onBack={()=>setBatchMode(false)} onEnabled={onSourceEnabled} onTest={onTestSource} onRemove={onRemoveSource}/>}</Page>;
+  if(tab==='sources') return <Page><Header title="源管理"/>
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9))',
+      border: '1px solid #334155',
+      borderRadius: 16,
+      padding: '14px 16px',
+      marginBottom: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(56,189,248,0.15)', display: 'grid', placeItems: 'center', color: '#38bdf8' }}>
+            <Layers size={20} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <b style={{ fontSize: 15, color: '#f8fafc' }}>多仓订阅与单仓聚合</b>
+              <span style={{ fontSize: 10, background: 'rgba(56,189,248,0.2)', color: '#38bdf8', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>PRO</span>
+            </div>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>支持多仓导入 · Punycode 中文转码 · 主备地址回退 · 智能重试 · Sites Key 自动去重合并</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="primary" onClick={()=>setMultiRepoMode(true)} style={{ padding: '8px 14px', fontSize: 12 }}>
+            <Layers size={14}/> 进入多仓工作台 (第二界面)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div className="actions" style={{ marginTop: 0, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <button className="secondary" onClick={()=>setMultiRepoMode(true)} title="管理多仓订阅与单仓聚合">
+        <Layers size={15}/> 多仓管理
+      </button>
+      <button className="secondary" onClick={()=>{setSourceNotice('');setSourceForm({sourceType:'live',name:''})}}>
+        添加单源
+      </button>
+      <button className="secondary" onClick={()=>setBatchMode(true)}>
+        <CheckSquare size={15}/> 批量管理
+      </button>
+      <label className="secondary file-button">
+        <Upload size={15}/> 导入单仓
+        <input type="file" accept=".json,.txt,.m3u,application/json,text/plain" hidden onChange={async e=>{
+          const file=e.target.files?.[0];
+          if(!file)return;
+          try{
+            const parsed=await sourceConfigService.importFile(file);
+            await onSaveSources(parsed);
+            setSourceNotice(`已导入 ${parsed.length} 个源`);
+          }catch(error){
+            console.error(error);
+            setSourceNotice(`导入失败：${error?.message||'文件格式无效'}`);
+          }finally{
+            e.target.value='';
+          }
+        }}/>
+      </label>
+      <button className="secondary" onClick={()=>{
+        try{
+          sourceConfigService.download(sources);
+          setSourceNotice('源配置已导出');
+        }catch(e){
+          console.error(e);
+          setSourceNotice(`导出失败：${e?.message||'未知错误'}`);
+        }
+      }}>
+        <Download size={15}/> 导出
+      </button>
+      <button className="secondary" title="恢复项目内置的精品影视与直播源" onClick={async ()=>{
+        if(window.confirm('确定要恢复项目自带的默认源吗？这不会删除您手动添加的源。')){
+          try{
+            const defaults=sourceConfigService.getDefaultSources();
+            const existing=new Set(sources.map(s=>`${s.sourceType}|${s.sourceRef||s.url||''}`));
+            const additions=defaults.filter(d=>!existing.has(`${d.sourceType}|${d.sourceRef||d.url||''}`));
+            await onSaveSources([...sources,...additions]);
+            setSourceNotice(additions.length?`已恢复 ${additions.length} 个内置源`:'内置源已经存在，无需重复添加');
+          }catch(e){
+            console.error(e);
+            setSourceNotice(`恢复内置源失败：${e?.message||'未知错误'}`);
+          }
+        }
+      }}>
+        恢复内置
+      </button>
+      <button className="secondary danger" style={{color:'#e53935',borderColor:'#f8d7da',background:'#fdf2f2',marginLeft:'auto'}} onClick={()=>setConfirm({type:'clear-all-sources'})} title="彻底清空源与缓存">
+        <Trash2 size={15}/> 清空全部
+      </button>
+    </div>
+
+    {sourceNotice&&<div className="batch-source-notice" role="status">{sourceNotice}</div>}
+
+    <><SectionTitle title={`影视源 (${sources.filter(s=>s.sourceType==='movie').length})`}/><SourceList sources={sources.filter(s=>s.sourceType==='movie')} onEnabled={onSourceEnabled} onActive={onSourceActive} onTest={onTestSource} onRemove={onRemoveSource}/><SectionTitle title={`Live 源 (${sources.filter(s=>s.sourceType==='live').length})`}/><SourceList sources={sources.filter(s=>s.sourceType==='live')} onEnabled={onSourceEnabled} onActive={onSourceActive} onTest={onTestSource} onRemove={onRemoveSource}/></>
+
+    <InfoCard title="源边界与多仓聚合" text="影视源与 Live 源独立管理。支持网络 URL、多仓聚合单仓导入、标准 JSON、M3U 播放列表以及 #genre# 分类 TXT 电视直播源文件，导入与运行时状态分离。"/>
+
+    {confirm?.type==='clear-all-sources'&&<ConfirmDialog title="彻底清空所有源与缓存？" text="此操作将彻底删除源管理中的全部影视源与 Live 直播源（包括项目自带内置源），并清理全量本地数据与播放缓存，保证不留残余。确定清空吗？" onCancel={()=>setConfirm(null)} onConfirm={async ()=>{setConfirm(null);await onClearAllSources?.();}}/>}
+
+    {sourceForm&&<SourceForm value={sourceForm} onCancel={()=>setSourceForm(null)} onSave={async source=>{
+      const additions=Array.isArray(source)?source:[{...source,sourceId:`source_${source.sourceType}_${Date.now()}`,enabled:true,status:'未测试'}];
+      try{
+        await onSaveSources([...sources,...additions]);
+        setSourceNotice(Array.isArray(source)?`已添加 ${source.length} 个源`:'源已添加');
+        setSourceForm(null);
+      }catch(error){
+        console.error(error);
+        setSourceNotice(`保存源失败：${error?.message||'未知错误'}`);
+      }
+    }}/>}
+
+    {batchMode&&<BatchSourceManager sources={sources} onBack={()=>setBatchMode(false)} onEnabled={onSourceEnabled} onTest={onTestSource} onRemove={onRemoveSource}/>}
+
+    {multiRepoMode&&<MultiRepoManager
+      onBack={()=>setMultiRepoMode(false)}
+      onSelectRepoDetail={(repo)=>setInspectingRepo(repo)}
+      onApplyAggregated={async (aggregatedConfig)=>{
+        const res=await multiRepoService.applyAggregatedConfigToActiveSources(aggregatedConfig,{sourceConfigService});
+        await onSaveSources(res.sources);
+        return res;
+      }}
+      onDownloadAggregated={(aggregatedConfig)=>{
+        sourceConfigService.download(aggregatedConfig,'tvbox-aggregated-single.json');
+      }}
+      sourceNotice={sourceNotice}
+      setSourceNotice={setSourceNotice}
+    />}
+
+    {inspectingRepo&&<RepoDetailView
+      repo={inspectingRepo}
+      onBack={()=>setInspectingRepo(null)}
+      isSyncing={isSyncingSingle}
+      onSync={async (repoId)=>{
+        setIsSyncingSingle(true);
+        try{
+          const res=await multiRepoService.syncRepo(repoId);
+          if(res.ok){
+            setInspectingRepo(res.repo);
+            setSourceNotice(`“${res.repo.name}” 同步成功`);
+          }else{
+            setInspectingRepo(res.repo);
+            setSourceNotice(`“${res.repo.name}” 同步失败：${res.error}`);
+          }
+        }finally{
+          setIsSyncingSingle(false);
+        }
+      }}
+    />}
+  </Page>;
  if(tab==='settings'){
   const playback=settings?.playback??{};
   const decoder=playback.decoder??{};

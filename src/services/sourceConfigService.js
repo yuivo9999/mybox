@@ -765,6 +765,9 @@ export const sourceConfigService = {
   },
 
   exportText(sources) {
+    if (sources && typeof sources === 'object' && !Array.isArray(sources)) {
+      return JSON.stringify(sources, null, 2);
+    }
     return JSON.stringify(Array.isArray(sources) ? sources : sourceRepository.getAll(), null, 2);
   },
 
