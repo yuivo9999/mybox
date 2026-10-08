@@ -45,7 +45,7 @@ export function normalizePlaybackCandidate(input = {}) {
     contentId: input.contentId ? String(input.contentId) : undefined,
     episodeId: input.episodeId ? String(input.episodeId) : undefined,
     channelId: input.channelId ? String(input.channelId) : undefined,
-    protocol: input.protocol ? String(input.protocol).toLowerCase() : inferProtocol(mediaUrl),
+    protocol: normalizeProtocol(input.protocol, mediaUrl),
     headers: { ...(input.headers ?? {}) },
     cookies: input.cookies ?? '',
     referer: input.referer ?? '',
@@ -90,11 +90,19 @@ export function createPlaybackRequest(input = {}) {
 }
 
 function inferProtocol(url) {
-  const value = String(url ?? '').toLowerCase();
-  if (value.includes('.m3u8')) return 'hls';
-  if (value.includes('.mpd')) return 'dash';
+  const value = String(url ?? '').trim().toLowerCase();
+  if (/\.m3u8(?:[?#]|$)/.test(value) || value.includes('/pltv/') || value.includes('/tvod/')) return 'hls';
+  if (/\.mpd(?:[?#]|$)/.test(value)) return 'dash';
   if (value.startsWith('rtmp://')) return 'rtmp';
   if (value.startsWith('rtsp://')) return 'rtsp';
-  if (/\.flv(?:\?|$)/.test(value)) return 'flv';
+  if (/\.flv(?:[?#]|$)/.test(value)) return 'flv';
   return 'http';
+}
+
+function normalizeProtocol(protocol, url) {
+  const explicit = String(protocol ?? '').trim().toLowerCase();
+  const inferred = inferProtocol(url);
+  if (explicit === 'hls/m3u8' || explicit === 'application/vnd.apple.mpegurl' || explicit === 'application/x-mpegurl') return 'hls';
+  if (inferred !== 'http' && (!explicit || explicit === 'http' || explicit === 'https')) return inferred;
+  return explicit || inferred;
 }
