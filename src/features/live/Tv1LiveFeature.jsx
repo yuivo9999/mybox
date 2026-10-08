@@ -31,10 +31,6 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const [isImmersive, setIsImmersive] = useState(false);
   const [resolvedInput, setResolvedInput] = useState(null);
   const [playbackError, setPlaybackError] = useState('');
-  const playbackRequest = useMemo(
-    () => activeChannel ? playbackService.createLiveRequest({ channel: activeChannel, preferredSource: activeSource?.sourceId }) : null,
-    [activeChannel, activeSource?.sourceId],
-  );
   const videoRef = useRef(null);
   const controllerRef = useRef(null);
   const loadedControllerRef = useRef(null);
@@ -77,6 +73,10 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   }, [activeSource?.sourceId]);
 
   const activeChannel = useMemo(() => selectedChannelId ? channels.find(channel => channel.channelId === selectedChannelId) || null : null, [channels, selectedChannelId]);
+  const playbackRequest = useMemo(
+    () => activeChannel ? playbackService.createLiveRequest({ channel: activeChannel, preferredSource: activeSource?.sourceId }) : null,
+    [activeChannel, activeSource?.sourceId],
+  );
   const activeStream = activeChannel?.streams?.[streamIndex] || activeChannel?.streams?.[0] || null;
   const categories = useMemo(() => ['全部', ...new Set(channels.map(channel => channel.category).filter(Boolean))], [channels]);
   const visible = useMemo(() => category === '全部' ? channels : channels.filter(channel => channel.category === category), [channels, category]);
