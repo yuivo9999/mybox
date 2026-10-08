@@ -6,6 +6,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
   let state=PlayerState.IDLE,input=null,released=false,buffering=false;
   let hlsInstance=null;
   let hlsRecoveryCount=0;
+  let hlsGeneration=0;
 
   const cleanupHls = () => {
     if (hlsInstance) {
@@ -62,6 +63,10 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
 
       if (isHls && Hls.isSupported()) {
         try {
+          hlsGeneration += 1;
+          const currentHlsGen = hlsGeneration;
+          const isCurrentHls = () => hlsGeneration === currentHlsGen && hlsInstance === hls;
+
           // 8 路线标准 Web 引擎策略：
           // - VOD 点播 (路线 ⑤⑥)：大缓冲区平滑预加载，防止快进卡顿。
           // - Live 直播 (路线 ⑦⑧)：低延时追帧机制，切台秒开与断流自动重连。
@@ -69,6 +74,9 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: isLowLatency,
+            liveSyncMode: 'buffered',
+            startOnSegmentBoundary: true,
+            initialLiveManifestSize: 6,
             backBufferLength: isLiveStream ? 30 : 60,
             maxBufferLength: isLiveStream ? 12 : 30, // 初始快速起播
             maxMaxBufferLength: isLiveStream ? 35 : 120,
@@ -152,7 +160,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       if(next.headers&&Object.keys(next.headers).length)emit('requestContextIgnored',{reason:'HTML5_VIDEO_CANNOT_SET_CUSTOM_HEADERS'});
       return input;
     },
-    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');state=PlayerState.PREPARING;video.load();return input;},
+    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(hlsInstance)return input;state=PlayerState.PREPARING;video.load();return input;},
     play(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');return video.play()??Promise.resolve();},
     pause(){video.pause();return true;},
     seek(seconds){if(!Number.isFinite(seconds))return false;if(!Number.isFinite(video.duration)&&!video.seekable?.length)return false;video.currentTime=Math.max(0,seconds);return video.currentTime;},

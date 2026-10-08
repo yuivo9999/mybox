@@ -44,7 +44,11 @@ jobs:
 
       - name: Set up Android SDK 36
         run: |
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(which sdkmanager 2>/dev/null || find "${SDK_ROOT:-/usr/local/lib/android/sdk}" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          fi
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "platform-tools"

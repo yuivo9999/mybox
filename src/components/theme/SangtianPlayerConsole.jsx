@@ -17,7 +17,7 @@ export function SangtianPlayerWindow({
   onFullscreen, terminalTag = 'BASH', children, videoContainerRef, isLive = false,
   playbackRate = 1.0, onChangePlaybackRate,
   channels = [], activeChannel = null, activeStreamIndex = 0, onSelectChannel, onSwitchStreamIndex,
-  decoderEngine = 'exo', onChangeDecoderEngine,
+  decoderEngine = 'ijk_hardware', onChangeDecoderEngine,
   isImmersive = false, onToggleImmersive,
   title = '', episodeLabel = '', sourceLabel = '',
   episodes = [], currentEpisodeIndex = 0, onSelectEpisode,
@@ -977,7 +977,12 @@ export function SangtianPlayerWindow({
                           {currentRouteConfig.description}
                         </p>
                         <div className="settings-btn-grid vertical">
-                          {currentRouteConfig.engines.map((engine) => {
+                          {(currentRouteConfig?.engines || [
+                            { id: 'ijk_hardware', name: 'IJK 硬解' },
+                            { id: 'exo_hardware', name: 'Exo 硬解' },
+                            { id: 'exo_software', name: 'Exo 软解' },
+                            { id: 'ijk_software', name: 'IJK 软解' },
+                          ]).map((engine) => {
                             const isActive = decoderEngine === engine.id ||
                               (decoderEngine === 'exo' && engine.id.includes('exo')) ||
                               (decoderEngine === 'ijk' && engine.id.includes('ijk')) ||
@@ -1148,6 +1153,8 @@ export function SangtianPlayerWindow({
     </div>
   );
 }
+
+export const SangtianPlayerWindowCore = SangtianPlayerWindow;
 
 export function SangtianFloatingBar({
   playbackRate = 1.0,
