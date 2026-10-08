@@ -30,6 +30,20 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
   const bind=()=>{for(const [e,h] of [['loadstart',onLoadStart],['waiting',onWaiting],['canplay',onCanPlay],['playing',onPlaying],['pause',onPause],['timeupdate',onTimeUpdate],['durationchange',onTimeUpdate],['loadedmetadata',onTimeUpdate],['ended',onEnded],['error',onError]])video.addEventListener(e,h);};
   const unbind=()=>{for(const [e,h] of [['loadstart',onLoadStart],['waiting',onWaiting],['canplay',onCanPlay],['playing',onPlaying],['pause',onPause],['timeupdate',onTimeUpdate],['durationchange',onTimeUpdate],['loadedmetadata',onTimeUpdate],['ended',onEnded],['error',onError]])video.removeEventListener(e,h);};
   const trackList=(list)=>Array.from(list??[]).map((t,i)=>({id:String(t.id??t.language??i),label:t.label??t.language??`Track ${i+1}`,language:t.language??'',kind:t.kind??''}));
+
+  const BROWSER_FORBIDDEN_HEADERS = new Set([
+    'accept-charset','accept-encoding','access-control-request-headers','access-control-request-method',
+    'connection','content-length','cookie','cookie2','date','dnt','expect','host','keep-alive','origin',
+    'referer','te','trailer','transfer-encoding','upgrade','user-agent','via',
+  ]);
+  const getHlsRequestHeaders = headers => Object.entries(headers ?? {}).filter(([name,value]) => {
+    const normalized = String(name).trim().toLowerCase();
+    return normalized && value != null && !BROWSER_FORBIDDEN_HEADERS.has(normalized) && !normalized.startsWith('sec-');
+  });
+  const getIgnoredBrowserHeaders = headers => Object.keys(headers ?? {}).filter(name => {
+    const normalized = String(name).trim().toLowerCase();
+    return BROWSER_FORBIDDEN_HEADERS.has(normalized) || normalized.startsWith('sec-');
+  });
   bind();
 
   const adapter={
@@ -93,6 +107,14 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
             initialLiveManifestSize: 6,
             fragLoadingTimeOut: 25000,
             manifestLoadingTimeOut: 25000,
+            xhrSetup: (xhr) => {
+              for (const [name, value] of getHlsRequestHeaders(next.headers)) {
+                try { xhr.setRequestHeader(name, String(value)); } catch {}
+              }
+              if (next.withCredentials || next.playerHint?.withCredentials || next.metadata?.withCredentials) {
+                xhr.withCredentials = true;
+              }
+            },
           });
           hlsInstance = hls;
           const isCurrentHls = () => !released && generation === hlsGeneration && hlsInstance === hls;
@@ -177,7 +199,15 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       }
 
       if(next.cookies&&typeof document!=='undefined'){try{for(const cookie of String(next.cookies).split(/;\s*/)){const i=cookie.indexOf('=');if(i>0)document.cookie=cookie;}}catch{}}
-      if(next.headers&&Object.keys(next.headers).length)emit('requestContextIgnored',{reason:'HTML5_VIDEO_CANNOT_SET_CUSTOM_HEADERS'});
+      const ignoredHeaders = getIgnoredBrowserHeaders(next.headers);
+      if(ignoredHeaders.length || next.referer || next.userAgent) {
+        emit('requestContextIgnored',{
+          reason:'HTML5_VIDEO_BROWSER_RESTRICTED_HEADERS',
+          headers:ignoredHeaders,
+          refererIgnored:Boolean(next.referer),
+          userAgentIgnored:Boolean(next.userAgent),
+        });
+      }
       return input;
     },
     prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');state=PlayerState.PREPARING;if(hlsInstance)return input;video.load();return input;},
