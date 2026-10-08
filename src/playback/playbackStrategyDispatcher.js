@@ -236,10 +236,12 @@ const ROUTE_DEFINITIONS = {
     uiLayout: 'responsive_web',
     description: 'HLS.js 低延迟追赶直播切片，分类快速换台无缝切流',
     engines: [
-      { id: 'hls_lowlatency', name: 'HLS.js 低延时内核 (直播追帧首选)', engine: 'html5', mode: 'hls_lowlatency', isNative: false },
-      { id: 'html5_hardware', name: 'HTML5 原生解码 (标准模式)', engine: 'html5', mode: 'native_hardware', isNative: false },
-      { id: 'ijk_hardware', name: 'IJKPlayer (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
-      { id: 'exo_hardware', name: 'ExoPlayer (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'hls_lowlatency', name: 'HLS.js 低延时内核 (直播追帧首选)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'Web首选' },
+      { id: 'html5_hardware', name: 'HTML5 原生解码 (硬件加速)', engine: 'html5', mode: 'native_hardware', isNative: false, badge: '浏览器硬解' },
+      { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'ijk_software', name: 'IJKPlayer 软解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'exo_hardware', name: 'ExoPlayer 硬解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'exo_software', name: 'ExoPlayer 软解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
     ],
   },
 
@@ -258,9 +260,12 @@ const ROUTE_DEFINITIONS = {
     uiLayout: 'web_fullscreen_overlay',
     description: '沉浸全屏遮罩，顶部横屏/铺满/退出，底部快捷切换直播线路，断流自动重试',
     engines: [
-      { id: 'hls_lowlatency', name: 'HLS.js 沉浸直播引擎 (自动重试/追帧)', engine: 'html5', mode: 'hls_lowlatency', isNative: false },
-      { id: 'html5_hardware', name: 'HTML5 原生解码 (硬件加速)', engine: 'html5', mode: 'native_hardware', isNative: false },
-      { id: 'ijk_software', name: 'IJK 容灾 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'hls_lowlatency', name: 'HLS.js 沉浸直播引擎 (自动重试/追帧)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'Web首选' },
+      { id: 'html5_hardware', name: 'HTML5 原生解码 (硬件加速)', engine: 'html5', mode: 'native_hardware', isNative: false, badge: '浏览器硬解' },
+      { id: 'ijk_hardware', name: 'IJKPlayer 硬解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'ijk_software', name: 'IJKPlayer 软解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'exo_hardware', name: 'ExoPlayer 硬解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
+      { id: 'exo_software', name: 'ExoPlayer 软解 (APK专享 · Web自动降级)', engine: 'html5', mode: 'hls_lowlatency', isNative: false, badge: 'APK专享' },
     ],
   },
 };

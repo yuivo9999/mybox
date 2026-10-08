@@ -9,7 +9,7 @@ export const globalLiveCache = {
   selectedCategory: '全部',
   resolvedStreams: {},
   activeStreamIndex: 0,
-  decoderEngine: 'exo',
+  decoderEngine: null,
   isImmersive: false,
 };
 

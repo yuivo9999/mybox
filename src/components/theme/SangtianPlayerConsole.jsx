@@ -969,41 +969,70 @@ export function SangtianPlayerWindow({
                       <div className="settings-group">
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                           <label style={{ margin: 0 }}>解码内核与硬软解 (Decoder Engine & Mode)</label>
-                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(217, 119, 6, 0.2)', color: '#fbbf24', border: '1px solid rgba(217, 119, 6, 0.4)', fontWeight: 600 }}>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: runtimeEnv === RUNTIME_ENV.WEB ? 'rgba(59, 130, 246, 0.2)' : 'rgba(217, 119, 6, 0.2)', color: runtimeEnv === RUNTIME_ENV.WEB ? '#60a5fa' : '#fbbf24', border: `1px solid ${runtimeEnv === RUNTIME_ENV.WEB ? 'rgba(59, 130, 246, 0.4)' : 'rgba(217, 119, 6, 0.4)'}`, fontWeight: 600 }}>
                             {currentRouteConfig.label}
                           </span>
                         </div>
-                        <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 10px 0', lineHeight: 1.4 }}>
-                          {currentRouteConfig.description}
-                        </p>
+                        
+                        {/* 明确展示 Web 与 Android 分工与职责 */}
+                        <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: runtimeEnv === RUNTIME_ENV.WEB ? '#93c5fd' : '#fcd34d', marginBottom: '3px' }}>
+                            <span>{runtimeEnv === RUNTIME_ENV.WEB ? '🌐 Web 浏览器端分工' : '📱 Android 原生容器分工'}</span>
+                          </div>
+                          <p style={{ fontSize: '11px', color: '#94a3b8', margin: 0, lineHeight: 1.4 }}>
+                            {runtimeEnv === RUNTIME_ENV.WEB
+                              ? 'Web 浏览器下运行 HLS.js 低延时内核与 HTML5 原生硬解；ExoPlayer / IJKPlayer 为 Android 原生 APK 专享内核，Web 端选中后会自动由 HLS.js 平滑承载，软硬解互斥生效。'
+                              : 'Android 客户端由 MediaCodec 底层硬解与 FFmpeg 软解引擎分工容灾，支持 Exo 与 IJK 动态互斥切换。'}
+                          </p>
+                        </div>
+
                         <div className="settings-btn-grid vertical">
-                          {(currentRouteConfig?.engines || [
-                            { id: 'ijk_hardware', name: 'IJK 硬解' },
-                            { id: 'exo_hardware', name: 'Exo 硬解' },
-                            { id: 'exo_software', name: 'Exo 软解' },
-                            { id: 'ijk_software', name: 'IJK 软解' },
-                          ]).map((engine) => {
-                            const isActive = decoderEngine === engine.id ||
-                              (decoderEngine === 'exo' && engine.id.includes('exo')) ||
-                              (decoderEngine === 'ijk' && engine.id.includes('ijk')) ||
-                              (decoderEngine === 'hls' && engine.id.includes('hls')) ||
-                              (decoderEngine === 'html5' && (engine.id.includes('html5') || engine.id.includes('hls')));
-                            return (
-                              <button
-                                key={engine.id}
-                                className={`setting-btn ${isActive ? 'active' : ''}`}
-                                onClick={() => onChangeDecoderEngine?.(engine.id)}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                              >
-                                <span>{engine.name}</span>
-                                {engine.badge && (
-                                  <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.12)', color: '#cbd5e1' }}>
-                                    {engine.badge}
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
+                          {(() => {
+                            const enginesList = currentRouteConfig?.engines || [
+                              { id: 'ijk_hardware', name: 'IJK 硬解' },
+                              { id: 'exo_hardware', name: 'Exo 硬解' },
+                              { id: 'exo_software', name: 'Exo 软解' },
+                              { id: 'ijk_software', name: 'IJK 软解' },
+                            ];
+                            
+                            // 严格互斥计算唯一选中的激活引擎 ID，杜绝“硬解”与“软解”同时选中的异常
+                            const rawEngine = String(decoderEngine || '').toLowerCase();
+                            let exactActiveId = '';
+                            if (enginesList.some(e => e.id === rawEngine)) {
+                              exactActiveId = rawEngine;
+                            } else if (rawEngine.includes('exo')) {
+                              exactActiveId = rawEngine.includes('soft') ? 'exo_software' : 'exo_hardware';
+                            } else if (rawEngine.includes('ijk')) {
+                              exactActiveId = rawEngine.includes('soft') ? 'ijk_software' : 'ijk_hardware';
+                            } else if (rawEngine.includes('html5') || rawEngine.includes('hls')) {
+                              exactActiveId = rawEngine.includes('hard') ? 'html5_hardware' : (isLive ? 'hls_lowlatency' : 'hls_worker');
+                            }
+                            if (!exactActiveId || !enginesList.some(e => e.id === exactActiveId)) {
+                              exactActiveId = enginesList[0]?.id || 'ijk_hardware';
+                            }
+
+                            return enginesList.map((engine) => {
+                              const isActive = engine.id === exactActiveId;
+                              return (
+                                <button
+                                  key={engine.id}
+                                  className={`setting-btn ${isActive ? 'active' : ''}`}
+                                  onClick={() => onChangeDecoderEngine?.(engine.id)}
+                                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {isActive && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block' }} />}
+                                    <span>{engine.name}</span>
+                                  </div>
+                                  {engine.badge && (
+                                    <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: isActive ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.12)', color: isActive ? '#7dd3fc' : '#cbd5e1' }}>
+                                      {engine.badge}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
 

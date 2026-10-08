@@ -7,6 +7,7 @@ import { requestManager } from '../../services/requestManager.js';
 import { SmartImage, EmptyState, LoadingState, ErrorState } from '../../components/StateViews.jsx';
 import { Tv1LivePlayerBlock } from '../../components/player/Tv1LivePlayerBlock.jsx';
 import { getPlaybackScheme } from '../../models/userData.js';
+import { detectRuntimeEnv, RUNTIME_ENV } from '../../playback/playbackStrategyDispatcher.js';
 
 function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
   return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
@@ -23,8 +24,10 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [streamIndex, setStreamIndex] = useState(0);
   const [decoderEngine, setDecoderEngine] = useState(() => {
+    const isWeb = detectRuntimeEnv() === RUNTIME_ENV.WEB;
     const playback = settings?.playback || {};
     if (playback.livePlaybackScheme) return getPlaybackScheme(playback.livePlaybackScheme).id;
+    if (isWeb) return 'hls_lowlatency';
     const engine = playback.livePlayer || 'ijk';
     return normalizeDecoderSelection(engine, playback.decoder?.[engine] || 'hardware');
   });
@@ -131,6 +134,8 @@ export function Tv1LiveFeature({ sources = [], favorites = [], onPlay, toggleFav
         const mode = String(payload?.mode ?? '').toLowerCase();
         if (engine === 'exo' || engine === 'ijk') {
           setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        } else if (engine === 'html5') {
+          setDecoderEngine(mode.includes('hard') ? 'html5_hardware' : 'hls_lowlatency');
         }
       },
       onResolvedInput: setResolvedInput,

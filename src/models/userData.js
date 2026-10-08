@@ -1,15 +1,21 @@
 import { DEFAULT_FONT_ID } from '../config/fontCatalog.js';
 
 export const PLAYBACK_SCHEMES = Object.freeze([
-  Object.freeze({ id: 'ijk_hardware', label: 'IJKPlayer 硬解', engine: 'ijk', decoder: 'hardware' }),
-  Object.freeze({ id: 'exo_hardware', label: 'ExoPlayer 硬解', engine: 'exo', decoder: 'hardware' }),
-  Object.freeze({ id: 'exo_software', label: 'ExoPlayer 软解', engine: 'exo', decoder: 'software' }),
-  Object.freeze({ id: 'ijk_software', label: 'IJKPlayer 软解', engine: 'ijk', decoder: 'software' }),
+  Object.freeze({ id: 'ijk_hardware', label: 'IJKPlayer 硬解', engine: 'ijk', decoder: 'hardware', platform: 'android' }),
+  Object.freeze({ id: 'exo_hardware', label: 'ExoPlayer 硬解', engine: 'exo', decoder: 'hardware', platform: 'android' }),
+  Object.freeze({ id: 'exo_software', label: 'ExoPlayer 软解', engine: 'exo', decoder: 'software', platform: 'android' }),
+  Object.freeze({ id: 'ijk_software', label: 'IJKPlayer 软解', engine: 'ijk', decoder: 'software', platform: 'android' }),
+  Object.freeze({ id: 'hls_lowlatency', label: 'HLS.js 低延时内核', engine: 'html5', decoder: 'hardware', platform: 'web' }),
+  Object.freeze({ id: 'html5_hardware', label: 'HTML5 原生硬解', engine: 'html5', decoder: 'hardware', platform: 'web' }),
+  Object.freeze({ id: 'hls_worker', label: 'HLS.js Worker分片', engine: 'html5', decoder: 'hardware', platform: 'web' }),
 ]);
 
 export function getPlaybackSchemeId(engine = 'ijk', decoder = 'hardware') {
   const normalizedEngine = String(engine || 'ijk').trim().toLowerCase();
   const normalizedDecoder = String(decoder || 'hardware').trim().toLowerCase();
+  if (normalizedEngine === 'html5') {
+    return normalizedDecoder === 'hls_lowlatency' ? 'hls_lowlatency' : 'html5_hardware';
+  }
   return PLAYBACK_SCHEMES.find(
     scheme => scheme.engine === normalizedEngine && scheme.decoder === normalizedDecoder,
   )?.id || 'ijk_hardware';
@@ -65,8 +71,8 @@ export const normalizePlaybackSettings = (value = {}) => {
   const decoder = input.decoder && typeof input.decoder === 'object' ? input.decoder : {};
   const order = Array.isArray(input.fallbackOrder) ? input.fallbackOrder.filter(item => ['exo', 'ijk', 'native'].includes(item)) : [];
   const fallbackOrder = [...new Set([...order, 'ijk', 'exo', 'native'])].slice(0, 3);
-  const legacyMoviePlayer = ['exo', 'ijk'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk';
-  const legacyLivePlayer = ['exo', 'ijk'].includes(input.livePlayer) ? input.livePlayer : 'ijk';
+  const legacyMoviePlayer = ['exo', 'ijk', 'html5'].includes(input.moviePlayer) ? input.moviePlayer : 'ijk';
+  const legacyLivePlayer = ['exo', 'ijk', 'html5'].includes(input.livePlayer) ? input.livePlayer : 'ijk';
   const movieDecoder = decoder[legacyMoviePlayer] === 'software' ? 'software' : 'hardware';
   const liveDecoder = decoder[legacyLivePlayer] === 'software' ? 'software' : 'hardware';
   const movieScheme = PLAYBACK_SCHEMES.some(scheme => scheme.id === input.moviePlaybackScheme)

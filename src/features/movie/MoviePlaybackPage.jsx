@@ -44,7 +44,15 @@ export function MoviePlaybackPage({
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(settings?.playback?.moviePlayer ?? 'exo');
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    const isWeb = detectRuntimeEnv() === RUNTIME_ENV.WEB;
+    const playback = settings?.playback || {};
+    if (playback.moviePlaybackScheme) return playback.moviePlaybackScheme;
+    if (isWeb) return 'hls_worker';
+    const player = playback.moviePlayer || 'ijk';
+    const mode = playback.decoder?.[player] || 'hardware';
+    return `${player}_${mode}`;
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
     const runtimeEnv = detectRuntimeEnv();
@@ -63,6 +71,7 @@ export function MoviePlaybackPage({
       playback: {
         ...currentPlayback,
         moviePlayer: resolved.engine,
+        moviePlaybackScheme: engineInput,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [resolved.engine]: resolved.decoder,

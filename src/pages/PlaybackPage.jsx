@@ -12,6 +12,7 @@ import {
 } from '../components/theme/SangtianPlayerConsole.jsx';
 import { PlaybackPagePlayerBlock } from '../components/player/PlaybackPagePlayerBlock.jsx';
 import { getPlaybackScheme } from '../models/userData.js';
+import { detectRuntimeEnv, RUNTIME_ENV } from '../playback/playbackStrategyDispatcher.js';
 
 function normalizeDecoderSelection(player = 'ijk', mode = 'hardware') {
   return getPlaybackScheme(String(player || 'ijk') + '_' + (String(mode).toLowerCase() === 'software' ? 'software' : 'hardware')).id;
@@ -43,9 +44,11 @@ function PlaybackView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [decoderEngine, setDecoderEngine] = useState(() => {
+    const isWeb = detectRuntimeEnv() === RUNTIME_ENV.WEB;
     const playback = settings?.playback || {};
     const scope = isLive ? 'live' : 'movie';
     if (playback[scope + 'PlaybackScheme']) return getPlaybackScheme(playback[scope + 'PlaybackScheme']).id;
+    if (isWeb) return isLive ? 'hls_lowlatency' : 'hls_worker';
     const engine = isLive ? playback.livePlayer : playback.moviePlayer;
     return normalizeDecoderSelection(engine || 'ijk', playback.decoder?.[engine] || 'hardware');
   });
@@ -171,6 +174,8 @@ function PlaybackView({
         const mode = String(payload?.mode ?? '').toLowerCase();
         if (engine === 'exo' || engine === 'ijk') {
           setDecoderEngine(engine + '_' + (mode === 'software' ? 'software' : 'hardware'));
+        } else if (engine === 'html5') {
+          setDecoderEngine(mode.includes('hard') ? 'html5_hardware' : (isLive ? 'hls_lowlatency' : 'hls_worker'));
         }
       }
 

@@ -69,7 +69,7 @@ export const globalLiveCache = {
   selectedCategory: '全部',
   resolvedStreams: {},
   activeStreamIndex: 0,
-  decoderEngine: 'exo',
+  decoderEngine: null,
   isImmersive: false,
 };
 
@@ -86,9 +86,16 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   const [tv1Error, setTv1Error] = useState(null);
   const [resolvedStreams, setResolvedStreams] = useState(globalLiveCache.resolvedStreams || {});
   const [streamLoading, setStreamLoading] = useState(false);
-  const [decoderEngine, setDecoderEngine] = useState(
-    globalLiveCache.decoderEngine ?? persistent.settings?.playback?.livePlayer ?? 'exo'
-  );
+  const [decoderEngine, setDecoderEngine] = useState(() => {
+    if (globalLiveCache.decoderEngine) return globalLiveCache.decoderEngine;
+    const isWeb = detectRuntimeEnv() === RUNTIME_ENV.WEB;
+    if (isWeb) return 'hls_lowlatency';
+    const currentPlayback = persistent.settings?.playback || {};
+    if (currentPlayback.livePlaybackScheme) return currentPlayback.livePlaybackScheme;
+    const player = currentPlayback.livePlayer || 'ijk';
+    const mode = currentPlayback.decoder?.[player] || 'hardware';
+    return `${player}_${mode}`;
+  });
 
   const handleSwitchDecoderEngine = async (engineInput) => {
     const runtimeEnv = detectRuntimeEnv();
@@ -107,6 +114,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
       playback: {
         ...currentPlayback,
         livePlayer: resolved.engine,
+        livePlaybackScheme: engineInput,
         decoder: {
           ...(currentPlayback.decoder || {}),
           [resolved.engine]: resolved.decoder,
