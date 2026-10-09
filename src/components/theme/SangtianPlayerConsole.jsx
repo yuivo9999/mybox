@@ -52,6 +52,7 @@ export function SangtianPlayerWindow({
   }, [candidate?.candidateId, candidate?.url, resolvedInput?.url]);
 
   const lastBufferRef = useRef({ time: 0, buffered: 0 });
+  const wasSystemFullscreenRef = useRef(false);
   const controlsTimeoutRef = useRef(null);
   const embeddedTimeoutRef = useRef(null);
 
@@ -144,16 +145,27 @@ export function SangtianPlayerWindow({
     const handleFullscreenChange = () => {
       const isSystem = Boolean(document.fullscreenElement);
       setIsSystemFullscreen(isSystem);
-      if (!isSystem && !isWebFullscreen) {
+      if (!isSystem) {
         setShowLeftSidebar(false);
         setShowRightSidebar(false);
         setShowEpisodeSidebar(false);
+        // 系统手势/Esc 退出全屏：同步收起 web 全屏与直播沉浸，避免卡在全屏遮罩
+        if (wasSystemFullscreenRef.current) {
+          setIsWebFullscreen(false);
+          if (isLive && onToggleImmersive) onToggleImmersive(false);
+        }
       }
+      wasSystemFullscreenRef.current = isSystem;
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     handleFullscreenChange();
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [isWebFullscreen]);
+
+  // 直播：沉浸状态由父级 isImmersive 统一驱动，关闭沉浸时同步收起 web 全屏
+  useEffect(() => {
+    if (isLive && !isImmersive) setIsWebFullscreen(false);
+  }, [isLive, isImmersive]);
 
   // Auto-hide fullscreen controls after 3 seconds of inactivity
   const fullscreen = isSystemFullscreen || isImmersive || isWebFullscreen;
