@@ -1,4 +1,4 @@
-const DEFAULTS={maxRetries:2,retryWindowMs:10000,reconnectMaxRetries:4,reconnectWindowMs:30000,reconnectDelayMs:1000};
+const DEFAULTS={maxRetries:2,retryWindowMs:10000,reconnectMaxRetries:2,reconnectWindowMs:30000,reconnectDelayMs:1000};
 export function createPlaybackNetworkPolicy(options={}) {
  const cfg={...DEFAULTS,...options}; let retryCount=0,retryWindow=0,reconnectCount=0,reconnectWindow=0;
  const inWindow=(started,windowMs)=>started&&Date.now()-started<=windowMs;

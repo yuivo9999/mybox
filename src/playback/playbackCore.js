@@ -148,7 +148,17 @@ export function createPlaybackCore(task,hooks={}) {
   const epoch=++operationEpoch;
   const input=await resolve(candidate,options);
   if(!input||!isOperationCurrent(epoch))return null;
-  const loaded=await playResolved(input,epoch);
+  let loaded=null;
+  try{
+   loaded=await playResolved(input,epoch);
+  }catch(error){
+   if(!isOperationCurrent(epoch))return null;
+   const code=classifyPlaybackError(error,{code:error?.message});
+   const normalized=errorService.normalize(error,{code:code===PlaybackFailureCode.NETWORK?ErrorCode.NETWORK:ErrorCode.PLAYBACK,context:{scope:'playback',taskId:task.request.taskId,requestId:task.request.requestId,candidateId:candidate?.candidateId},retryable:code===PlaybackFailureCode.NETWORK});
+   hooks.onPlayerError?.({error:normalized,candidate});
+   void recover(normalized,code);
+   return null;
+  }
   if(!loaded||!isOperationCurrent(epoch))return null;
   networkPolicy.resetRetry();
   return loaded;
