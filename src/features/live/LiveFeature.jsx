@@ -185,16 +185,6 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     trimmed = trimmed.trim();
     if (!trimmed) return;
 
-    // 在确认这个地址播放、开始下达播放命令之前，立即强制停止并卸载上一个播放的缓冲和缓存，杜绝残留
-    if (videoRef.current) {
-      try {
-        videoRef.current.pause();
-        videoRef.current.src = "";
-        videoRef.current.removeAttribute('src');
-        videoRef.current.load();
-      } catch (e) {}
-    }
-
     setSelectedChannelId('');
     setActiveStreamIndex(0);
 
@@ -216,12 +206,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setPlaybackError('');
     setPlaybackStatus('loading');
     setIsImmersive(true); // 激活沉浸播放卡片
-
-    if (playbackControllerRef.current) {
-      playbackControllerRef.current.resolveAndLoad(cand).catch(e => {
-        setPlaybackError(e?.message || '播放自定义地址失败');
-      });
-    }
+    // 不在此处直接调用旧控制器加载：customCandidate 变化会生成新的播放请求与控制器，由 effect 统一起播
   };
 
   const enabledTv1Sources = useMemo(
@@ -264,16 +249,17 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   }, []);
 
   useEffect(() => {
-    if (page?.live?.channelId && page.live.channelId !== selectedChannelId) {
-      setSelectedChannelId(page.live.channelId);
-      if (page.live.category) setSelectedCategory(page.live.category);
-      if (typeof page?.live?.streamIndex === 'number' && page.live.streamIndex >= 0) {
-        setActiveStreamIndex(page.live.streamIndex);
-      } else if (typeof globalLiveCache.activeStreamIndex === 'number' && globalLiveCache.activeStreamIndex >= 0) {
-        setActiveStreamIndex(globalLiveCache.activeStreamIndex);
-      }
+    const requestedId = page?.live?.channelId;
+    if (!requestedId) return;
+    setCustomCandidate(null);
+    setSelectedChannelId(requestedId);
+    if (page.live.category) setSelectedCategory(page.live.category);
+    if (typeof page?.live?.streamIndex === 'number' && page.live.streamIndex >= 0) {
+      setActiveStreamIndex(page.live.streamIndex);
     }
-  }, [page?.live?.channelId, page?.live?.category, page?.live?.streamIndex, selectedChannelId]);
+    // 一次性请求：消费后清空，之后用户在直播页自行选台不会被改回
+    pageStateStore.patch('live', { channelId: '', streamIndex: 0 });
+  }, [page?.live?.channelId]);
 
   useEffect(() => {
     let active = true;
@@ -377,9 +363,12 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
 
   const playbackController = useMemo(() => {
     if (!livePlaybackRequest) return null;
-    const ctrl = playbackService.createController(livePlaybackRequest, {
-      onStateChange: setPlaybackStatus,
+    let ctrl = null;
+    const isCurrentCtrl = () => playbackControllerRef.current === ctrl;
+    ctrl = playbackService.createController(livePlaybackRequest, {
+      onStateChange: state => { if (isCurrentCtrl()) setPlaybackStatus(state); },
       onCandidateChange: next => {
+        if (!isCurrentCtrl()) return;
         setPlaybackCandidate(next);
         if (next) {
           setPlaybackError('');
@@ -388,13 +377,14 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           if (index != null && index >= 0) setActiveStreamIndex(index);
         }
       },
-      onResolvedInput: setResolvedPlaybackInput,
+      onResolvedInput: input => { if (isCurrentCtrl()) setResolvedPlaybackInput(input); },
       onPlayerError: ({ error }) => {
+        if (!isCurrentCtrl()) return;
         const errMsg = error?.message || '播放器加载失败';
         setPlaybackError(errMsg);
       },
-      onParserError: ({ code }) => setPlaybackError('解析失败：' + code),
-      onExhausted: () => setPlaybackStatus('error'),
+      onParserError: ({ code }) => { if (isCurrentCtrl()) setPlaybackError('解析失败：' + code); },
+      onExhausted: () => { if (isCurrentCtrl()) setPlaybackStatus('error'); },
     });
     playbackControllerRef.current = ctrl;
     return ctrl;
@@ -417,7 +407,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     return () => { active = false; };
   }, [activeChannel]);
 
-  const loadChannelStreams = async (channel, forceRefresh = true) => {
+  const loadChannelStreams = async (channel, forceRefresh = true, targetIndex = 0) => {
     if (!channel?.deferredRef) return;
     const existing = resolvedStreams[channel.channelId];
     const resolvedAt = existing?.resolvedAt || 0;
@@ -432,7 +422,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
 
     setStreamLoading(true);
     setSelectedChannelId(channel.channelId);
-    setActiveStreamIndex(0);
+    setActiveStreamIndex(targetIndex);
     try {
       const streams = await resolveLiveChannelStreams(channel, {
         sources: enabledTv1Sources,
@@ -455,15 +445,6 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   };
 
   const selectChannel = (channel, targetStreamIndex = 0) => {
-    // 立即暂停并清理上一个播放的缓冲和缓存，不给上一个播放残留缓冲的机会
-    if (videoRef.current) {
-      try {
-        videoRef.current.pause();
-        videoRef.current.src = "";
-        videoRef.current.removeAttribute('src');
-        videoRef.current.load();
-      } catch (e) {}
-    }
     setCustomCandidate(null);
     setSelectedChannelId(channel.channelId);
     setActiveStreamIndex(targetStreamIndex);
@@ -472,7 +453,9 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     setResolvedPlaybackInput(null);
     setPlaybackError('');
     if (channel.deferredRef) {
-      void loadChannelStreams(channel, true);
+      const existing = resolvedStreams[channel.channelId];
+      const fresh = existing && Date.now() - (existing.resolvedAt || 0) < 60000;
+      if (!fresh) void loadChannelStreams(channel, true, targetStreamIndex);
     }
   };
 
@@ -480,6 +463,8 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
   useEffect(() => {
     const handleKeyDown = event => {
       if (!allChannels.length) return;
+      const tag = String(event.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target?.isContentEditable) return;
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
         event.preventDefault();
         const currentIndex = allChannels.findIndex(c => c.channelId === selectedChannelId);
@@ -604,16 +589,6 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     if (index < 0 || !activeChannel?.streams?.length) return;
     const boundedIndex = Math.max(0, Math.min(index, activeChannel.streams.length - 1));
 
-    // 立即暂停并清理上一个播放的缓冲和缓存，重新连接
-    if (videoRef.current) {
-      try {
-        videoRef.current.pause();
-        videoRef.current.src = "";
-        videoRef.current.removeAttribute('src');
-        videoRef.current.load();
-      } catch (e) {}
-    }
-
     setActiveStreamIndex(boundedIndex);
     globalLiveCache.activeStreamIndex = boundedIndex;
     const req = livePlaybackRequestRef.current;
@@ -651,9 +626,6 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     if (streamId && Array.isArray(channelToPlay.streams)) {
       const idx = channelToPlay.streams.findIndex(s => s.streamId === streamId || s.url === streamId);
       if (idx >= 0) targetIdx = idx;
-    }
-    if (channelToPlay.deferredRef && !resolvedStreams[channelToPlay.channelId]) {
-      await loadChannelStreams(channelToPlay);
     }
     selectChannel(channelToPlay, targetIdx);
     setIsImmersive(true);
@@ -718,7 +690,8 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
           protocol: customCandidate.protocol,
           sourceId: customCandidate.sourceId,
           candidateId: customCandidate.candidateId,
-        } : { label: '请选择频道', protocol: 'LIVE' })}
+        } : null)}
+        idleText={streamLoading ? '正在读取频道线路…' : '请从下方选择频道开始观看'}
         candidates={livePlaybackRequest?.candidates ?? (customCandidate ? [customCandidate] : [])}
         error={playbackError}
         resolvedInput={resolvedPlaybackInput}
@@ -892,7 +865,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
                 const favorite = favorites.some(i => i.targetType === 'channel' && i.targetId === channel.channelId);
                 const isLazy = Boolean(channel.deferredRef);
                 const isResolving = streamLoading && selectedChannelId === channel.channelId && isLazy;
-                const streamCount = resolvedStreams[channel.channelId]?.length ?? channel.streams?.length ?? channel.estimatedStreamCount ?? channel.deferredRef?.lineIndices?.length ?? 0;
+                const streamCount = resolvedStreams[channel.channelId]?.streams?.length ?? channel.streams?.length ?? channel.estimatedStreamCount ?? channel.deferredRef?.lineIndices?.length ?? 0;
 
                 return (
                   <div
