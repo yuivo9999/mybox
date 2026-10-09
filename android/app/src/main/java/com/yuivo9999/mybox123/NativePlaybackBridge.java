@@ -439,9 +439,15 @@ public final class NativePlaybackBridge {
 
     @JavascriptInterface
     public synchronized String releaseMedia(String ignored) {
+        // 软释放：仅停止并释放当前播放引擎、隐藏视频表面。
+        // 该桥是 Activity 级单例，换台/离开页面都会调用本方法；
+        // 这里绝不能把 released 置为 true，否则之后所有 loadMedia 都会返回 PLAYER_RELEASED，
+        // 表现为“任何 m3u8 都无法播放”。永久释放只在 release()（Activity 销毁）中进行。
         if (released) return ok("released", true);
-        released = true;
+        playbackGeneration += 1L;
         wantPlay = false;
+        prepared = false;
+        pausedByHost = false;
         releaseCurrentEngine();
         if (textureView != null) {
             detachSurface();
@@ -468,7 +474,10 @@ public final class NativePlaybackBridge {
     }
 
     public synchronized void release() {
-        if (!released) releaseMedia("{}");
+        // 永久释放：仅在 Activity.onDestroy 中调用
+        if (released) return;
+        releaseMedia("{}");
+        released = true;
     }
 
     private static String normalizeProtocol(String protocol, String mediaUrl) {
