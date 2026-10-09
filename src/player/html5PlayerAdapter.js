@@ -125,7 +125,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
                   } else {
                     cleanupHls();
                     state = PlayerState.ERROR;
-                    emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_NETWORK_ERROR') });
+                    emit('error', { nativeError: new Error('HLS_NETWORK_ERROR:' + (data.details || 'fatal')) });
                   }
                   break;
                 case Hls.ErrorTypes.MEDIA_ERROR:
@@ -135,13 +135,13 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
                   } else {
                     cleanupHls();
                     state = PlayerState.ERROR;
-                    emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_MEDIA_ERROR') });
+                    emit('error', { nativeError: new Error('HLS_MEDIA_ERROR:' + (data.details || 'fatal')) });
                   }
                   break;
                 default:
                   cleanupHls();
                   state = PlayerState.ERROR;
-                  emit('error', { nativeError: new Error(data.details || 'HLS_FATAL_ERROR') });
+                  emit('error', { nativeError: new Error('HLS_ERROR:' + (data.details || 'fatal')) });
                   break;
               }
             }
@@ -161,7 +161,21 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       return input;
     },
     prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(hlsInstance)return input;state=PlayerState.PREPARING;video.load();return input;},
-    play(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');return video.play()??Promise.resolve();},
+    play(){
+      if(!input)throw new Error('PLAYER_INPUT_REQUIRED');
+      const attempt=()=>{
+        const p=video.play();
+        if(!p||typeof p.catch!=='function')return Promise.resolve();
+        return p.catch(err=>{
+          if(err?.name==='AbortError')return undefined;
+          if(err?.name==='NotAllowedError'&&!video.muted){video.muted=true;return video.play()?.catch?.(()=>undefined);}
+          throw err;
+        });
+      };
+      // HLS 起播需等清单与首片段下载完成，这里不阻塞加载流程；真实失败由 HLS 错误事件上报
+      if(hlsInstance){void attempt().catch(()=>{});return Promise.resolve();}
+      return attempt();
+    },
     pause(){video.pause();return true;},
     seek(seconds){if(!Number.isFinite(seconds))return false;if(!Number.isFinite(video.duration)&&!video.seekable?.length)return false;video.currentTime=Math.max(0,seconds);return video.currentTime;},
     setPlaybackRate(rate){const r=Number(rate);if(Number.isFinite(r)&&r>0){video.playbackRate=r;}return video.playbackRate;},
