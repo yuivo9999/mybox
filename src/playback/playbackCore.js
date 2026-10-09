@@ -60,6 +60,7 @@ export function createPlaybackCore(task,hooks={}) {
   if(event.event==='error'){
    const code=classifyPlaybackError(event.nativeError,{code:event.nativeError?.message});
    const normalized=errorService.normalize(event.nativeError??new Error('MEDIA_LOAD_ERROR'),{code:code===PlaybackFailureCode.NETWORK?ErrorCode.NETWORK:ErrorCode.PLAYBACK,context:{scope:'playback',taskId:task.request.taskId,requestId:task.request.requestId,candidateId:task.currentCandidateId},retryable:code===PlaybackFailureCode.NETWORK});
+   hooks.onPlayerError?.({error:normalized,candidate:task.currentCandidate});
    void recover(normalized,code);
   }
   if(event.event==='requestContextIgnored')hooks.onPlayerWarning?.(event);
