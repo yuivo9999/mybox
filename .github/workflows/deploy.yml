@@ -31,6 +31,9 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Build
+        env:
+          # 可选：在仓库 Settings → Variables 新增 HLS_PROXY_URL，网页端直播即可默认走该 HTTPS 中转
+          VITE_HLS_PROXY: ${{ vars.HLS_PROXY_URL }}
         run: |
           npm run build
           touch dist/.nojekyll
