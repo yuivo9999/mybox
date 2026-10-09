@@ -1,4 +1,5 @@
 import Hls from 'hls.js';
+import { buildHlsProxyUrl, canUseHlsProxy, isMixedContentUrl } from '../playback/hlsWebProxy.js';
 import { PlayerState, PlayerCapability, createPlayerCapabilities, createPlayerAdapterContract } from './playerInterface.js';
 
 export function createHtml5PlayerAdapter(video, hooks = {}) {
@@ -62,93 +63,118 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       const isLowLatency = Boolean(next.playerHint?.webMode === 'hls_lowlatency' || isLiveStream);
 
       if (isHls && Hls.isSupported()) {
-        try {
-          hlsGeneration += 1;
-          const currentHlsGen = hlsGeneration;
-          const isCurrentHls = () => hlsGeneration === currentHlsGen && hlsInstance === hls;
+        const tryAutoplay = () => {
+          const p = video.play();
+          p?.catch?.(err => {
+            if (err?.name === 'NotAllowedError' && !video.muted) {
+              video.muted = true;
+              video.play()?.catch?.(() => {});
+            }
+          });
+        };
 
-          // 8 路线标准 Web 引擎策略：
-          // - VOD 点播 (路线 ⑤⑥)：大缓冲区平滑预加载，防止快进卡顿。
-          // - Live 直播 (路线 ⑦⑧)：低延时追帧机制，切台秒开与断流自动重连。
-          let fragLoadedCount = 0;
-          const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: isLowLatency,
-            liveSyncMode: 'buffered',
-            startOnSegmentBoundary: true,
-            initialLiveManifestSize: 6,
-            backBufferLength: isLiveStream ? 30 : 60,
-            maxBufferLength: isLiveStream ? 12 : 30, // 初始快速起播
-            maxMaxBufferLength: isLiveStream ? 35 : 120,
-            maxBufferSize: 80 * 1000 * 1000,
-            maxBufferHole: 0.8,
-            highBufferWatchdogPeriod: 2,
-            nudgeOffset: 0.2,
-            nudgeMaxRetry: 5,
-            liveSyncDurationCount: isLiveStream ? 3 : 6,
-            liveMaxLatencyDurationCount: isLiveStream ? 15 : 40,
-            fragLoadingTimeOut: 25000,
-            manifestLoadingTimeOut: 25000,
+        const mixed = isMixedContentUrl(next.url);
+        if (mixed && !canUseHlsProxy()) {
+          // https 页面无法加载 http 源：立即给出明确错误，不再空等 25 秒超时
+          state = PlayerState.ERROR;
+          Promise.resolve().then(() => {
+            if (!released && input === next) emit('error', { nativeError: new Error('HLS_UNSUPPORTED:MIXED_CONTENT_NEED_HTTPS_PROXY') });
           });
-          hlsInstance = hls;
-          hls.attachMedia(video);
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            hls.loadSource(next.url);
-          });
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            hlsRecoveryCount = 0;
-            endBuffering();
-            state = PlayerState.PREPARING;
-            emit('prepared');
-            if (next.playerHint?.autoplay !== false) {
-              video.play().catch(() => {});
-            }
-          });
-          hls.on(Hls.Events.FRAG_LOADED, () => {
-            fragLoadedCount += 1;
-            // 逐步提前缓存至 60 秒直播内容提前量：15s -> 30s -> 45s -> 60s
-            if (fragLoadedCount === 1) {
-              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 30);
-            } else if (fragLoadedCount === 2) {
-              hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
-            } else if (fragLoadedCount >= 3) {
-              hls.config.maxBufferLength = 60;
-            }
-          });
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  if (hlsRecoveryCount < 1) {
-                    hlsRecoveryCount += 1;
-                    hls.startLoad();
-                  } else {
+        } else {
+          // viaProxy=true 时，hls.js 的每个请求（清单、分片、密钥）都改走中转
+          const startHls = (viaProxy) => {
+            try {
+              hlsGeneration += 1;
+              let fragLoadedCount = 0;
+              const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: isLowLatency,
+                liveSyncMode: 'buffered',
+                startOnSegmentBoundary: true,
+                initialLiveManifestSize: 6,
+                backBufferLength: isLiveStream ? 30 : 60,
+                maxBufferLength: isLiveStream ? 12 : 30,
+                maxMaxBufferLength: isLiveStream ? 35 : 120,
+                maxBufferSize: 80 * 1000 * 1000,
+                maxBufferHole: 0.8,
+                highBufferWatchdogPeriod: 2,
+                nudgeOffset: 0.2,
+                nudgeMaxRetry: 5,
+                liveSyncDurationCount: isLiveStream ? 3 : 6,
+                liveMaxLatencyDurationCount: isLiveStream ? 15 : 40,
+                fragLoadingTimeOut: 25000,
+                manifestLoadingTimeOut: 25000,
+                xhrSetup: (xhr, requestUrl) => {
+                  if (!viaProxy) return;
+                  const proxied = buildHlsProxyUrl(requestUrl);
+                  if (proxied) xhr.open('GET', proxied, true);
+                },
+              });
+              hlsInstance = hls;
+              hls.attachMedia(video);
+              hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hls.loadSource(next.url);
+              });
+              hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hlsRecoveryCount = 0;
+                endBuffering();
+                state = PlayerState.PREPARING;
+                emit('prepared');
+                if (next.playerHint?.autoplay !== false) tryAutoplay();
+              });
+              hls.on(Hls.Events.FRAG_LOADED, () => {
+                fragLoadedCount += 1;
+                if (fragLoadedCount === 1) {
+                  hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 30);
+                } else if (fragLoadedCount === 2) {
+                  hls.config.maxBufferLength = Math.max(hls.config.maxBufferLength, 45);
+                } else if (fragLoadedCount >= 3) {
+                  hls.config.maxBufferLength = 60;
+                }
+              });
+              hls.on(Hls.Events.ERROR, (event, data) => {
+                if (!data.fatal) return;
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    // 直连失败（跨域/不可达）且已配置中转：自动改走中转重试一次
+                    if (!viaProxy && canUseHlsProxy()) {
+                      hlsRecoveryCount = 0;
+                      cleanupHls();
+                      startHls(true);
+                      break;
+                    }
+                    if (hlsRecoveryCount < 1) {
+                      hlsRecoveryCount += 1;
+                      hls.startLoad();
+                    } else {
+                      cleanupHls();
+                      state = PlayerState.ERROR;
+                      emit('error', { nativeError: new Error('HLS_NETWORK_ERROR:' + (data.details || 'fatal')) });
+                    }
+                    break;
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    if (hlsRecoveryCount < 1) {
+                      hlsRecoveryCount += 1;
+                      hls.recoverMediaError();
+                    } else {
+                      cleanupHls();
+                      state = PlayerState.ERROR;
+                      emit('error', { nativeError: new Error('HLS_MEDIA_ERROR:' + (data.details || 'fatal')) });
+                    }
+                    break;
+                  default:
                     cleanupHls();
                     state = PlayerState.ERROR;
-                    emit('error', { nativeError: new Error('HLS_NETWORK_ERROR:' + (data.details || 'fatal')) });
-                  }
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  if (hlsRecoveryCount < 1) {
-                    hlsRecoveryCount += 1;
-                    hls.recoverMediaError();
-                  } else {
-                    cleanupHls();
-                    state = PlayerState.ERROR;
-                    emit('error', { nativeError: new Error('HLS_MEDIA_ERROR:' + (data.details || 'fatal')) });
-                  }
-                  break;
-                default:
-                  cleanupHls();
-                  state = PlayerState.ERROR;
-                  emit('error', { nativeError: new Error('HLS_ERROR:' + (data.details || 'fatal')) });
-                  break;
-              }
+                    emit('error', { nativeError: new Error('HLS_ERROR:' + (data.details || 'fatal')) });
+                    break;
+                }
+              });
+            } catch {
+              video.src = next.url;
+              video.load();
             }
-          });
-        } catch {
-          video.src = next.url;
-          video.load();
+          };
+          startHls(mixed);
         }
       } else {
         video.src = next.url;
@@ -160,9 +186,10 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       if(next.headers&&Object.keys(next.headers).length)emit('requestContextIgnored',{reason:'HTML5_VIDEO_CANNOT_SET_CUSTOM_HEADERS'});
       return input;
     },
-    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(hlsInstance)return input;state=PlayerState.PREPARING;video.load();return input;},
+    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(state===PlayerState.ERROR||hlsInstance)return input;state=PlayerState.PREPARING;video.load();return input;},
     play(){
       if(!input)throw new Error('PLAYER_INPUT_REQUIRED');
+      if(state===PlayerState.ERROR)return Promise.resolve();
       const attempt=()=>{
         const p=video.play();
         if(!p||typeof p.catch!=='function')return Promise.resolve();
