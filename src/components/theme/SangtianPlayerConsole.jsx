@@ -25,6 +25,7 @@ export function SangtianPlayerWindow({
   onPreviousEpisode, onNextEpisode,
   candidates = [], onSelectCandidate, onOpenSourceModal,
   onTimeMetricsChange,
+  idleText = '',
 }) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -552,6 +553,13 @@ export function SangtianPlayerWindow({
                         重新连接播放
                       </button>
                     )}
+                  </div>
+                );
+              }
+              if (isLive && !candidate && status !== 'error') {
+                return (
+                  <div className="sangtian-video-overlay compact" style={{ pointerEvents: 'none' }}>
+                    <span>{idleText || '请从下方选择频道开始观看'}</span>
                   </div>
                 );
               }
