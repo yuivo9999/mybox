@@ -73,6 +73,7 @@ export const globalLiveCache = {
   activeStreamIndex: 0,
   decoderEngine: null,
   isImmersive: false,
+  exitImmersive: null,
 };
 
 export function LiveFeature({ channels = [], sources = [], favorites = [], onChannel, onPlay, onTab, toggleFavorite }) {
@@ -146,6 +147,17 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     }
   };
   const [isImmersive, setIsImmersive] = useState(globalLiveCache.isImmersive || false);
+
+  // 向 App 层暴露“退出沉浸”能力，供安卓返回键优先收起沉浸界面
+  useEffect(() => {
+    globalLiveCache.exitImmersive = () => {
+      setIsImmersive(false);
+      if (typeof document !== 'undefined' && document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    };
+    return () => { globalLiveCache.exitImmersive = null; };
+  }, []);
 
   const [customUrl, setCustomUrl] = useState('');
   const [customCandidate, setCustomCandidate] = useState(null);
@@ -770,8 +782,15 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         decoderEngine={decoderEngine}
         onChangeDecoderEngine={handleSwitchDecoderEngine}
         isImmersive={isImmersive}
-        onToggleImmersive={() => setIsImmersive(v => !v)}
-      />
+        onToggleImmersive={next => setIsImmersive(typeof next === 'boolean' ? next : v => !v)}
+      >
+        <video
+          ref={videoRef}
+          playsInline
+          preload="metadata"
+          className="sangtian-video-element"
+        />
+      </SangtianPlayerWindow>
 
       {activeChannel && (
         <div className="live-current-bar">
