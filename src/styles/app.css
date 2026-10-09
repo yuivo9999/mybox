@@ -911,7 +911,7 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
 }
 
 .sangtian-window.is-web-fullscreen .sangtian-window-body {
-  height: calc(100vh - 38px) !important;
+  height: 100% !important;
   aspect-ratio: auto !important;
 }
 
@@ -2786,4 +2786,13 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,5
 
 .sangtian-window[data-player-scope="tv1-live"] .sangtian-fullscreen-controls {
   isolation: isolate;
+}
+
+
+/* 全屏/沉浸时顶栏已隐藏，比例计算基于整个视口高度 */
+.sangtian-window.is-web-fullscreen.aspect-16-9 .sangtian-video-element {
+  width: min(100%, calc(100vh * 16 / 9));
+}
+.sangtian-window.is-web-fullscreen.aspect-4-3 .sangtian-video-element {
+  width: min(100%, calc(100vh * 4 / 3));
 }
