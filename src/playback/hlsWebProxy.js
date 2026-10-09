@@ -17,12 +17,14 @@
 import { detectRuntimeEnv, RUNTIME_ENV } from './playbackStrategyDispatcher.js';
 
 const STORAGE_KEY = 'tvbox.hlsProxy';
+let memoryProxy = '';
 
 export function getHlsProxyTemplate() {
   try {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : '';
     if (saved && saved.trim()) return saved.trim();
   } catch {}
+  if (memoryProxy && memoryProxy.trim()) return memoryProxy.trim();
   try {
     const fromEnv = import.meta.env?.VITE_HLS_PROXY;
     if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim();
@@ -39,6 +41,7 @@ export function isValidHlsProxyTemplate(value) {
 
 export function setHlsProxyTemplate(value) {
   const text = String(value || '').trim();
+  memoryProxy = text;
   try {
     if (text) localStorage.setItem(STORAGE_KEY, text);
     else localStorage.removeItem(STORAGE_KEY);

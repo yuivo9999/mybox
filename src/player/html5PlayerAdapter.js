@@ -85,6 +85,8 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
           const startHls = (viaProxy) => {
             try {
               hlsGeneration += 1;
+              const currentHlsGen = hlsGeneration;
+              const isCurrentHls = () => hlsGeneration === currentHlsGen && hlsInstance === hls;
               let fragLoadedCount = 0;
               const hls = new Hls({
                 enableWorker: true,
@@ -186,7 +188,7 @@ export function createHtml5PlayerAdapter(video, hooks = {}) {
       if(next.headers&&Object.keys(next.headers).length)emit('requestContextIgnored',{reason:'HTML5_VIDEO_CANNOT_SET_CUSTOM_HEADERS'});
       return input;
     },
-    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(state===PlayerState.ERROR||hlsInstance)return input;state=PlayerState.PREPARING;video.load();return input;},
+    prepare(){if(!input)throw new Error('PLAYER_INPUT_REQUIRED');if(hlsInstance)return input;if(state===PlayerState.ERROR)return input;state=PlayerState.PREPARING;video.load();return input;},
     play(){
       if(!input)throw new Error('PLAYER_INPUT_REQUIRED');
       if(state===PlayerState.ERROR)return Promise.resolve();
