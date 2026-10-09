@@ -9,6 +9,12 @@ import { persistentStateStore } from '../../state/persistentStateStore.js';
 import { SmartImage, EmptyState, LoadingState } from '../../components/StateViews.jsx';
 import { SangtianPlayerWindow } from '../../components/theme/SangtianPlayerConsole.jsx';
 import {
+  canUseHlsProxy,
+  getHlsProxyTemplate,
+  isValidHlsProxyTemplate,
+  setHlsProxyTemplate,
+} from '../../playback/hlsWebProxy.js';
+import {
   getPlaybackRouteConfig,
   resolveEngineSelection,
   detectRuntimeEnv,
@@ -16,6 +22,20 @@ import {
   MEDIA_KIND,
   VIEW_TIER
 } from '../../playback/playbackStrategyDispatcher.js';
+
+function describePlaybackError(message) {
+  const text = String(message || '');
+  if (!text) return '';
+  if (text.includes('MIXED_CONTENT')) {
+    return '该源是 http:// 地址，而当前网页是 https://，浏览器禁止直接播放。请在上方“网页端中转设置”填入 HTTPS 中转地址后重试。';
+  }
+  if (/HLS_NETWORK_ERROR|manifestLoad|fragLoad|levelLoad/i.test(text)) {
+    return canUseHlsProxy()
+      ? '已通过中转重试，仍无法加载：源站可能已失效，或拒绝中转服务器访问。请切换其他线路。'
+      : '浏览器无法直接加载该源（多为跨域限制或源站不可达）。可在上方“网页端中转设置”配置 HTTPS 中转后重试，或切换其他线路。';
+  }
+  return text;
+}
 
 export function createLiveFeature({ channels = [] } = {}) {
   return {
@@ -620,6 +640,30 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
     }
   };
 
+  const retryCurrentPlayback = () => {
+    setPlaybackError('');
+    if (playbackController) {
+      const initial = playbackController.start();
+      if (initial) {
+        setPlaybackCandidate(initial);
+        playbackController.resolveAndLoad(initial).catch(err => setPlaybackError(err?.message || '播放重试失败'));
+      }
+    }
+  };
+
+  const [proxyInput, setProxyInput] = useState(() => getHlsProxyTemplate());
+  const [proxyMessage, setProxyMessage] = useState('');
+  const isWebRuntime = detectRuntimeEnv() === RUNTIME_ENV.WEB;
+  const handleSaveProxy = () => {
+    if (!isValidHlsProxyTemplate(proxyInput)) {
+      setProxyMessage('中转地址必须以 https:// 开头');
+      return;
+    }
+    setHlsProxyTemplate(proxyInput);
+    setProxyMessage(proxyInput.trim() ? '已保存，正在重试当前频道…' : '已清除中转设置');
+    retryCurrentPlayback();
+  };
+
   const handleStartImmersivePlay = async (channelToPlay = activeChannel, streamId = activeStream?.streamId) => {
     if (!channelToPlay) return;
     let targetIdx = 0;
@@ -673,6 +717,27 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         </div>
       </Header>
 
+      {isWebRuntime && (
+        <details className="live-proxy-settings" style={{ margin: '0 14px 10px', fontSize: 12, color: '#b8c0cc' }}>
+          <summary style={{ cursor: 'pointer' }}>网页端中转设置{canUseHlsProxy() ? '（已启用）' : '（未配置）'}</summary>
+          <div style={{ marginTop: 8, lineHeight: 1.6 }}>
+            <div>在 https 页面里，浏览器无法直接播放 http:// 源，也无法加载没有跨域许可的源，需要一个 HTTPS 中转。填写你自己的中转地址，例如：</div>
+            <code style={{ display: 'block', margin: '4px 0', wordBreak: 'break-all' }}>https://你的名字.workers.dev/?url=</code>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="text"
+                value={proxyInput}
+                onChange={e => setProxyInput(e.target.value)}
+                placeholder="https://你的名字.workers.dev/?url="
+                style={{ flex: 1, height: 32, border: '1px solid #303643', background: '#11141b', borderRadius: 8, padding: '0 10px', color: '#fff', fontSize: 12, outline: 'none' }}
+              />
+              <button type="button" onClick={handleSaveProxy} style={{ height: 32, padding: '0 12px', borderRadius: 8, background: '#f2f4f8', color: '#101217', fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap' }}>保存并重试</button>
+            </div>
+            {proxyMessage && <div style={{ marginTop: 4 }}>{proxyMessage}</div>}
+          </div>
+        </details>
+      )}
+
       <SangtianPlayerWindow
         videoRef={videoRef}
         controller={playbackController}
@@ -693,7 +758,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
         } : null)}
         idleText={streamLoading ? '正在读取频道线路…' : '请从下方选择频道开始观看'}
         candidates={livePlaybackRequest?.candidates ?? (customCandidate ? [customCandidate] : [])}
-        error={playbackError}
+        error={describePlaybackError(playbackError)}
         resolvedInput={resolvedPlaybackInput}
         isLive
         terminalTag={activeChannel ? 'LIVE · ' + activeChannel.name : (customCandidate ? 'LIVE · 自定义地址' : 'LIVE · 等待频道')}
@@ -724,16 +789,7 @@ export function LiveFeature({ channels = [], sources = [], favorites = [], onCha
             handleSwitchStream(nextIdx);
           }
         }}
-        onRetry={() => {
-          setPlaybackError('');
-          if (playbackController) {
-            const initial = playbackController.start();
-            if (initial) {
-              setPlaybackCandidate(initial);
-              playbackController.resolveAndLoad(initial).catch(err => setPlaybackError(err?.message || '播放重试失败'));
-            }
-          }
-        }}
+        onRetry={retryCurrentPlayback}
         onStop={() => {
           try {
             playbackController?.stop();
