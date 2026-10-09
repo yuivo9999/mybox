@@ -144,10 +144,11 @@ export function App(){
  }, [tab, contentState.channels.length, contentState.status, liveSourcesCount]);
  useEffect(()=>webViewRuntime.mount({onBack:()=>{
    if(typeof document!=='undefined'&&document.fullscreenElement){void webViewRuntime.setFullscreen(false);return true}
+   if(tab==='live'&&globalLiveCache.isImmersive&&globalLiveCache.exitImmersive){globalLiveCache.exitImmersive();return true}
    if(route==='movie-play'){const nextRoute=selected?.metadata?.returnRoute||'detail';sessionStateStore.patch({route:nextRoute,selected:nextRoute==='detail'?(selected?.metadata?.movie||selected):null});return true}   if(route==='live-play'){handleLiveBack();return true}
    if(route==='detail'||route==='live-channel'||route==='search'){sessionStateStore.patch({route:null,selected:null});return true}
    return false;
- },onAppStateChange:(state)=>{if(state==='foreground'&&(route==='movie-play'||route==='live-play'))webViewRuntime.call('getAppState')} }),[route]);
+ },onAppStateChange:(state)=>{if(state==='foreground'&&(route==='movie-play'||route==='live-play'))webViewRuntime.call('getAppState')} }),[route,tab]);
 
  const openMovie=(movie,routeOverride=null)=>{
    if(routeOverride==='search'){sessionStateStore.patch({tab:'movies',route:'search',selected:null});return}
@@ -260,6 +261,9 @@ export function App(){
    if (!gesture.active || event.pointerId !== gesture.pointerId || gesture.blocked || isSwipeExcludedTarget(event.target)) return;
    const direction = getGestureDirection(event.clientX - gesture.startX, event.clientY - gesture.startY);
    if (!direction) return;
+
+   // 直播沉浸播放期间，横向滑动属于播放器操作，不切换页面
+   if (tab === 'live' && globalLiveCache.isImmersive) return;
 
    // 全屏/播放器状态优先退出全屏，不触发页面切换。
    if (typeof document !== 'undefined' && document.fullscreenElement) {
